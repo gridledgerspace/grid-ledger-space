@@ -39,52 +39,48 @@ function App() {
   // === АВТОЗБЕРЕЖЕННЯ  ===
   // 1. Зберігаємось при зміні СЕКТОРУ (Це і є успішний Варп)
   useEffect(() => {
-    if (!session || currentSector === '0:0') return
+    // 1. Прибираємо перевірку на 0:0. Тепер ми хочемо завантажувати дані і для нього!
+    if (!session) return 
 
     const initSector = async () => {
-        // 1. Оновлюємо "Відвідані сектори" в профілі гравця
+        // --- Логіка відвіданих секторів ---
         const { visitedSectors } = useGameStore.getState()
         if (!visitedSectors.includes(currentSector)) {
             const newVisited = [...visitedSectors, currentSector]
             useGameStore.setState({ visitedSectors: newVisited })
             
-            // Зберігаємо в базу (оновлюємо масив visited_sectors)
             await supabase.from('profiles').update({ 
                 visited_sectors: newVisited 
             }).eq('id', session.user.id)
         }
 
-        // 2. Перевіряємо, чи існує сектор у Глобальній Мапі
-        let { data: sector} = await supabase
+        // --- Завантаження даних про сектор ---
+        let { data: sector } = await supabase
             .from('sectors')
             .select('*')
             .eq('id', currentSector)
             .single()
 
-        // 3. Якщо сектору немає — ми ПЕРШОВІДКРИВАЧІ! Генеруємо його.
+        // --- Генерація нового (тільки якщо сектору немає в базі) ---
         if (!sector) {
             console.log('🆕 DISCOVERING NEW SECTOR:', currentSector)
             const newSectorData = {
                 id: currentSector,
                 discovered_by: session.user.id,
-                // Рандомна кількість ресурсів на весь сектор
+                sector_type: 'wild', // Нові сектори - дикі
                 iron_amount: Math.floor(Math.random() * 500) + 100, 
                 gold_amount: Math.floor(Math.random() * 200),
                 dark_matter_amount: Math.random() > 0.9 ? Math.floor(Math.random() * 50) : 0
             }
             
-            const { error: insertError } = await supabase
-                .from('sectors')
-                .insert(newSectorData)
-            
+            const { error: insertError } = await supabase.from('sectors').insert(newSectorData)
             if (!insertError) sector = newSectorData
-        } else {
-            console.log('📡 SECTOR DATA LOADED:', sector)
         }
 
-        // 4. Оновлюємо локальний стан (щоб UI знав, скільки тут ресурсів)
+        // --- Оновлення локального стану ---
         if (sector) {
             useGameStore.setState({
+                currentSectorType: sector.sector_type, // <--- Найважливіше: беремо тип з бази!
                 sectorResources: {
                     iron: sector.iron_amount,
                     gold: sector.gold_amount,
@@ -92,9 +88,15 @@ function App() {
                 }
             })
         }
+        
+        // --- Запуск сканера ---
+        // Сканер тепер побачить currentSectorType і сам вирішить: малювати станцію чи астероїди
+        useGameStore.getState().scanCurrentSector()
     }
 
+    // Не забудь викликати цю функцію!
     initSector()
+
   }, [currentSector, session])
 
   // 2. Зберігаємось при вході в АНГАР (Це покриває і Смерть, і Стикування)
