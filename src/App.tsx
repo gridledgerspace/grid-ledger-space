@@ -111,6 +111,19 @@ function App() {
       }
   }, [status]) // Спрацьовує, коли змінюється статус гри
 
+  useEffect(() => {
+      if (!session) return
+
+      // Запускаємо таймер
+      const saveTimer = setTimeout(() => {
+          saveGame(true) // Тихе збереження
+      }, 2000) // 2000 мс = 2 секунди затримки
+
+      // Якщо за ці 2 секунди щось знову змінилося — скасовуємо попередній таймер і запускаємо новий
+      return () => clearTimeout(saveTimer)
+      
+  }, [credits, fuel, session]) // <--- Слідкуємо за грошима та паливом
+
   const loadUserData = async (userId: string) => {
     setLoadingData(true)
     const { data, error } = await supabase
@@ -137,9 +150,10 @@ function App() {
   // === ОНОВЛЕНА ФУНКЦІЯ SAVE ===
   const saveGame = async (silent = false) => {
     if (!session) return
-    setIsSaving(true) // Вмикаємо індикатор "Saving..."
+    setIsSaving(true)
 
-    const state = useGameStore.getState()
+    // Отримуємо АКТУАЛЬНИЙ стан (включно з тим, що тільки що накопали)
+    const state = useGameStore.getState() // <--- Найважливіший момент: беремо найсвіжіші дані
     
     const { error } = await supabase
       .from('profiles')
@@ -148,6 +162,8 @@ function App() {
         fuel: state.fuel,
         hull: state.hull,
         current_sector: state.currentSector,
+        cargo: state.cargo, // <--- ДОДАЛИ ЦЕЙ РЯДОК (збереження інвентарю)
+        visited_sectors: state.visitedSectors, // <--- І це теж корисно оновити
         updated_at: new Date()
       })
       .eq('id', session.user.id)
@@ -174,7 +190,14 @@ function App() {
       
       <EventOverlay />
       <CombatOverlay />
-      {showStation && <StationMenu onClose={() => setShowStation(false)} />}
+      {showStation && (
+        <StationMenu 
+          onClose={() => {
+            setShowStation(false)
+            saveGame(true)
+          }} 
+        />
+      )}
       {status === 'warping' && <WarpScreen />}
       {status === 'map' && <SectorMap />}
       {(status === 'space' || status === 'mining' || status === 'combat') && <SpaceView />}
