@@ -1,17 +1,43 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react' 
+
 import { useGameStore } from './store'
+import { supabase } from './supabase' 
+import AuthScreen from './components/AuthScreen' 
 import HangarScene from './components/HangarScene'
 import SectorMap from './components/SectorMap'
 import SpaceView from './components/SpaceView'
 import WarpScreen from './components/WarpScreen'
 import EventOverlay from './components/EventOverlay'
-import StationMenu from './components/StationMenu'
 import CombatOverlay from './components/CombatOverlay'
-import { Shield, Zap, Crosshair, Hexagon, ShoppingBag } from 'lucide-react'
+import StationMenu from './components/StationMenu'
+
+import { Shield, Zap, Crosshair, Hexagon, ShoppingBag, LogOut } from 'lucide-react'
 
 function App() {
   const { status, credits, fuel, currentSector } = useGameStore()
   const [showStation, setShowStation] = useState(false)
+  const [session, setSession] = useState<any>(null)
+
+  useEffect(() => {
+    // 1. Перевіряємо, чи ми вже залогінені
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session)
+    })
+
+    // 2. Слухаємо зміни (вхід/вихід)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  // Якщо немає сесії — показуємо екран входу
+  if (!session) {
+    return <AuthScreen />
+  }
 
   return (
     <div className="h-screen w-full bg-space-950 relative overflow-hidden text-white font-sans selection:bg-neon-cyan selection:text-black">
@@ -19,7 +45,6 @@ function App() {
       <EventOverlay />
       <CombatOverlay />
       
-      {/* Показуємо Маркет, якщо натиснуто */}
       {showStation && <StationMenu onClose={() => setShowStation(false)} />}
 
       {status === 'warping' && <WarpScreen />}
@@ -28,30 +53,31 @@ function App() {
 
       {status === 'hangar' && (
         <>
-          {/* 3D Фон */}
           <HangarScene />
 
-          {/* UI Ангару */}
           <div className="absolute inset-0 z-10 p-6 flex flex-col justify-between pointer-events-none animate-in fade-in duration-1000">
             
-            {/* === ВЕРХНЯ ПАНЕЛЬ === */}
             <div className="flex justify-between items-start">
-              
-              {/* Ліво: Назва корабля */}
               <div className="glass-panel px-6 py-2 rounded-br-2xl border-l-4 border-l-neon-cyan">
                 <h2 className="text-neon-cyan font-mono text-xl font-bold">USS-NEMESIS</h2>
                 <p className="text-xs text-gray-400 font-mono">BASE: SECTOR {currentSector}</p>
               </div>
               
-              {/* Право: Кредити + Кнопка Станції */}
               <div className="flex flex-col items-end gap-2 pointer-events-auto">
-                  {/* Панель валюти */}
+                  {/* === 5. ДОДАЄМО КНОПКУ ВИХОДУ (Тимчасово тут) === */}
+                  <button 
+                    onClick={() => supabase.auth.signOut()} 
+                    className="flex items-center gap-2 px-3 py-1 bg-red-900/50 border border-red-500 text-red-400 text-xs font-mono hover:bg-red-500 hover:text-black transition-all mb-2"
+                  >
+                      <LogOut size={12}/> LOGOUT
+                  </button>
+                  {/* ================================================= */}
+
                   <div className="glass-panel px-6 py-2 rounded-bl-2xl border-r-4 border-r-neon-orange text-right">
                     <h2 className="text-neon-orange font-mono text-xl font-bold">{credits.toLocaleString()} CR</h2>
                     <p className="text-xs text-gray-400 font-mono">FUEL: {fuel}%</p>
                   </div>
 
-                  {/* НОВА ПОЗИЦІЯ КНОПКИ ТОРГІВЛІ */}
                   {currentSector === '0:0' && (
                       <button 
                         onClick={() => setShowStation(true)}
@@ -66,21 +92,17 @@ function App() {
             {/* === ЦЕНТРАЛЬНА ЧАСТИНА (СЛОТИ) === */}
             {/* Тепер тут чисто, корабель по центру */}
             <div className="flex justify-between items-center h-full px-4 mt-10">
-              
-              {/* Лівий борт */}
               <div className="flex flex-col gap-4 pointer-events-auto">
                  <Slot icon={<Shield size={24} />} label="SHIELD" level="LVL 1" color="cyan" />
                  <Slot icon={<Zap size={24} />} label="ENGINE" level="LVL 1" color="cyan" />
               </div>
 
-              {/* ПРАВИЙ БОРТ */}
               <div className="flex flex-col gap-4 pointer-events-auto">
                  <Slot icon={<Crosshair size={24} />} label="LASER" level="MK-I" color="orange" />
                  <Slot icon={<Hexagon size={24} />} label="CARGO" level="EMPTY" color="orange" />
               </div>
             </div>
 
-            {/* === НИЖНЯ ПАНЕЛЬ (НАВІГАЦІЯ) === */}
             <div className="flex justify-center pb-8 pointer-events-auto">
               <button 
                 onClick={() => useGameStore.setState({ status: 'map' })}
