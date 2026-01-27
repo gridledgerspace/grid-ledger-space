@@ -12,17 +12,20 @@ import StationMenu from './components/StationMenu'
 import { Shield, Zap, Crosshair, Hexagon, ShoppingBag, LogOut, Save, RotateCcw } from 'lucide-react'
 
 function App() {
-  const { status, credits, fuel, currentSector } = useGameStore() // Додав hull для спостереження
+  const { status, credits, fuel, currentSector, hull } = useGameStore()
   const [showStation, setShowStation] = useState(false)
   
   const [session, setSession] = useState<any>(null)
+  
+  // Блокування збереження до повного завантаження даних
   const [isDataLoaded, setIsDataLoaded] = useState(false)
   const [loadingData, setLoadingData] = useState(false)
   
-  // Стан для відображення процесу збереження
+  // Індикатори збереження
   const [isSaving, setIsSaving] = useState(false)
   const [lastSavedTime, setLastSavedTime] = useState<string>('')
 
+  // === 1. АВТОРИЗАЦІЯ І ЗАВАНТАЖЕННЯ ===
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
@@ -37,96 +40,7 @@ function App() {
     return () => subscription.unsubscribe()
   }, [])
 
-  // === АВТОЗБЕРЕЖЕННЯ  ===
-  // 1. Зберігаємось при зміні СЕКТОРУ (Це і є успішний Варп)
-  useEffect(() => {
-    // 1. Прибираємо перевірку на 0:0. Тепер ми хочемо завантажувати дані і для нього!
-    if (!session) return 
-
-    const initSector = async () => {
-        // --- Логіка відвіданих секторів ---
-        const { visitedSectors } = useGameStore.getState()
-        if (!visitedSectors.includes(currentSector)) {
-            const newVisited = [...visitedSectors, currentSector]
-            useGameStore.setState({ visitedSectors: newVisited })
-            
-            await supabase.from('profiles').update({ 
-                visited_sectors: newVisited 
-            }).eq('id', session.user.id)
-        }
-
-        // --- Завантаження даних про сектор ---
-        let { data: sector } = await supabase
-            .from('sectors')
-            .select('*')
-            .eq('id', currentSector)
-            .single()
-
-        // --- Генерація нового (тільки якщо сектору немає в базі) ---
-        if (!sector) {
-            console.log('🆕 DISCOVERING NEW SECTOR:', currentSector)
-            const newSectorData = {
-                id: currentSector,
-                discovered_by: session.user.id,
-                sector_type: 'wild', // Нові сектори - дикі
-                iron_amount: Math.floor(Math.random() * 500) + 100, 
-                gold_amount: Math.floor(Math.random() * 200),
-                dark_matter_amount: Math.random() > 0.9 ? Math.floor(Math.random() * 50) : 0
-            }
-            
-            const { error: insertError } = await supabase.from('sectors').insert(newSectorData)
-            if (!insertError) sector = newSectorData
-        }
-
-        // --- Оновлення локального стану ---
-        if (sector) {
-            useGameStore.setState({
-                currentSectorType: sector.sector_type, // <--- Найважливіше: беремо тип з бази!
-                sectorResources: {
-                    iron: sector.iron_amount,
-                    gold: sector.gold_amount,
-                    darkMatter: sector.dark_matter_amount
-                }
-            })
-        }
-        
-        // --- Запуск сканера ---
-        // Сканер тепер побачить currentSectorType і сам вирішить: малювати станцію чи астероїди
-        useGameStore.getState().scanCurrentSector()
-    }
-
-    // Не забудь викликати цю функцію!
-    initSector()
-
-  }, [currentSector, session])
-
-  // 2. Зберігаємось при вході в АНГАР (Це покриває і Смерть, і Стикування)
-  useEffect(() => {
-      if (session && status === 'hangar') {
-          saveGame(true)
-      }
-  }, [status]) // Спрацьовує, коли змінюється екран на ангар
-
-  // === ЗБЕРЕЖЕННЯ ПРИ ВХОДІ В АНГАР ===
-  useEffect(() => {
-      if (status === 'hangar' && session) {
-          saveGame(true)
-      }
-  }, [status]) // Спрацьовує, коли змінюється статус гри
-
-  useEffect(() => {
-      if (!session) return
-
-      // Запускаємо таймер
-      const saveTimer = setTimeout(() => {
-          saveGame(true) // Тихе збереження
-      }, 2000) // 2000 мс = 2 секунди затримки
-
-      // Якщо за ці 2 секунди щось знову змінилося — скасовуємо попередній таймер і запускаємо новий
-      return () => clearTimeout(saveTimer)
-      
-  }, [credits, fuel, session]) // <--- Слідкуємо за грошима та паливом
-
+  // === 2. ФУНКЦІЯ ЗАВАНТАЖЕННЯ ДАНИХ (Load) ===
   const loadUserData = async (userId: string) => {
     setLoadingData(true)
     const { data, error } = await supabase
@@ -145,24 +59,29 @@ function App() {
         hull: data.hull,
         maxHull: data.max_hull,
         currentSector: data.current_sector,
+        // Вантажимо інвентар та історію
+        cargo: data.cargo || {}, 
+        visitedSectors: data.visited_sectors || ['0:0']
       })
+      console.log('✅ DATA FULLY LOADED, SAVING ENABLED')
+      // Дозволяємо збереження тільки після успішного завантаження
+      setIsDataLoaded(true) 
     }
     setLoadingData(false)
-    setIsDataLoaded(true) 
-    console.log('✅ DATA FULLY LOADED, SAVING ENABLED')
   }
 
-  // === ОНОВЛЕНА ФУНКЦІЯ SAVE ===
-  const saveGame = async (silent = false) => {
+  // === 3. ФУНКЦІЯ ЗБЕРЕЖЕННЯ (Save) ===
+  const saveGame = async (reason: string) => {
+    // Критична перевірка: не зберігаємо, поки дані не завантажились
     if (!session || !isDataLoaded) {
-        if (!silent) console.warn('🚫 Save blocked: Data not loaded yet')
+        if (session) console.warn(`🚫 Save blocked [${reason}]: Data not loaded yet`)
         return
     }
-    if (!session) return
+
+    console.log(`💾 SAVING GAME... Reason: ${reason}`)
     setIsSaving(true)
 
-    // Отримуємо АКТУАЛЬНИЙ стан (включно з тим, що тільки що накопали)
-    const state = useGameStore.getState() // <--- Найважливіший момент: беремо найсвіжіші дані
+    const state = useGameStore.getState()
     
     const { error } = await supabase
       .from('profiles')
@@ -171,26 +90,114 @@ function App() {
         fuel: state.fuel,
         hull: state.hull,
         current_sector: state.currentSector,
-        cargo: state.cargo, // <--- ДОДАЛИ ЦЕЙ РЯДОК (збереження інвентарю)
-        visited_sectors: state.visitedSectors, // <--- І це теж корисно оновити
+        cargo: state.cargo,
+        visited_sectors: state.visitedSectors,
         updated_at: new Date()
       })
       .eq('id', session.user.id)
 
-    setIsSaving(false) // Вимикаємо індикатор
-
+    setIsSaving(false)
+    
     if (error) {
-        console.error('Save error', error)
-        if (!silent) alert('Error saving!')
+        console.error('❌ Save failed:', error)
     } else {
         const time = new Date().toLocaleTimeString()
         setLastSavedTime(time)
-        if (!silent) {
-            // alert('Game Saved!') // Прибираємо алерт, бо він бісить
-        }
+        console.log('✅ SAVE COMPLETE')
     }
   }
 
+  // === 4. ЛОГІКА СЕКТОРІВ (ВІДКРИТТЯ + ГЕНЕРАЦІЯ) ===
+  useEffect(() => {
+    if (!session) return 
+
+    const initSector = async () => {
+        // --- А: Додаємо в історію відвідувань ---
+        const { visitedSectors } = useGameStore.getState()
+        if (!visitedSectors.includes(currentSector)) {
+            const newVisited = [...visitedSectors, currentSector]
+            useGameStore.setState({ visitedSectors: newVisited })
+            
+            // Оновлюємо історію в базі окремим легким запитом (необов'язково, але надійно)
+            await supabase.from('profiles').update({ 
+                visited_sectors: newVisited 
+            }).eq('id', session.user.id)
+        }
+
+        // --- Б: Перевіряємо базу на наявність сектору ---
+        let { data: sector } = await supabase
+            .from('sectors')
+            .select('*')
+            .eq('id', currentSector)
+            .single()
+
+        // --- В: Якщо сектору немає — генеруємо новий ---
+        if (!sector) {
+            console.log('🆕 DISCOVERING NEW SECTOR:', currentSector)
+            const newSectorData = {
+                id: currentSector,
+                discovered_by: session.user.id,
+                sector_type: 'wild', // Всі нові сектори - дикі
+                iron_amount: Math.floor(Math.random() * 500) + 100, 
+                gold_amount: Math.floor(Math.random() * 200),
+                dark_matter_amount: Math.random() > 0.9 ? Math.floor(Math.random() * 50) : 0
+            }
+            
+            const { error: insertError } = await supabase.from('sectors').insert(newSectorData)
+            if (!insertError) sector = newSectorData
+        }
+
+        // --- Г: Оновлюємо гру даними про сектор ---
+        if (sector) {
+            useGameStore.setState({
+                currentSectorType: sector.sector_type, // <--- Беремо тип з бази (wild або station)
+                sectorResources: {
+                    iron: sector.iron_amount,
+                    gold: sector.gold_amount,
+                    darkMatter: sector.dark_matter_amount
+                }
+            })
+        }
+        
+        // --- Д: Запускаємо сканер (він малює об'єкти) ---
+        useGameStore.getState().scanCurrentSector()
+        
+        // --- Е: Зберігаємо гру, бо ми змінили сектор ---
+        if (currentSector !== '0:0') {
+             saveGame('Sector Arrival')
+        }
+    }
+
+    initSector()
+  }, [currentSector, session])
+
+
+  // === 5. ТРИГЕРИ ЗБЕРЕЖЕННЯ (Auto-Save triggers) ===
+
+  // Тригер: Вхід в Ангар (після смерті або стикування)
+  useEffect(() => {
+      if (session && status === 'hangar') {
+          saveGame('Enter Hangar')
+      }
+  }, [status])
+
+  // Тригер: Зміна вантажу (Mining) - з затримкою 1 сек (Debounce)
+  useEffect(() => {
+      if (!session) return
+      
+      const timer = setTimeout(() => {
+          // Перевіряємо, чи є що зберігати (щоб не спамити при старті)
+          const totalCargo = Object.values(useGameStore.getState().cargo).reduce((a: number, b: number) => a + b, 0)
+          if (totalCargo > 0 || isDataLoaded) {
+             saveGame('Cargo Update')
+          }
+      }, 1000)
+      
+      return () => clearTimeout(timer)
+  }, [useGameStore((state) => state.cargo)])
+
+
+  // === 6. РЕНДЕР ===
   if (!session) return <AuthScreen />
   if (loadingData) return <div className="h-screen bg-black text-neon-cyan flex items-center justify-center font-mono">LOADING DATA...</div>
 
@@ -199,19 +206,21 @@ function App() {
       
       <EventOverlay />
       <CombatOverlay />
+      
       {showStation && (
-        <StationMenu 
-          onClose={() => {
-            setShowStation(false)
-            saveGame(true)
-          }} 
+      <StationMenu 
+        onClose={() => {
+          setShowStation(false)
+          saveGame('Station Exit') // <--- Зберігаємо при виході з магазину
+        }} 
         />
       )}
+
       {status === 'warping' && <WarpScreen />}
       {status === 'map' && <SectorMap />}
       {(status === 'space' || status === 'mining' || status === 'combat') && <SpaceView />}
 
-      {/* === ІНДИКАТОР ЗБЕРЕЖЕННЯ (Завжди видно зверху справа) === */}
+      {/* ІНДИКАТОР ЗБЕРЕЖЕННЯ (Правий верхній кут) */}
       <div className="absolute top-4 right-4 z-50 flex flex-col items-end gap-2 pointer-events-none">
           {isSaving && (
               <div className="text-neon-cyan text-[10px] font-mono animate-pulse flex items-center gap-1 bg-black/50 px-2 py-1 rounded border border-neon-cyan/30">
@@ -239,9 +248,8 @@ function App() {
               <div className="flex flex-col items-end gap-2 pointer-events-auto mt-8">
                   {/* КНОПКИ */}
                   <div className="flex gap-2 mb-2">
-                    {/* Кнопка ручного збереження тепер просто для заспокоєння гравця */}
                     <button 
-                        onClick={() => saveGame(false)} 
+                        onClick={() => saveGame('Manual Force Sync')} 
                         className="flex items-center gap-2 px-3 py-1 bg-green-900/50 border border-green-500 text-green-400 text-xs font-mono hover:bg-green-500 hover:text-black transition-all active:scale-95"
                     >
                         <Save size={12}/> FORCE SYNC
@@ -267,7 +275,7 @@ function App() {
               </div>
             </div>
 
-             {/* СЛОТИ (Без змін) */}
+             {/* СЛОТИ КОРАБЛЯ */}
             <div className="flex justify-between items-center h-full px-4 mt-10">
                  <div className="flex flex-col gap-4 pointer-events-auto">
                     <Slot icon={<Shield size={24} />} label="SHIELD" level="LVL 1" color="cyan" />
@@ -294,6 +302,7 @@ function App() {
   )
 }
 
+// Допоміжний компонент слота
 function Slot({ icon, label, level, color }: any) {
   const borderColor = color === 'cyan' ? 'border-neon-cyan/50' : 'border-neon-orange/50';
   const textColor = color === 'cyan' ? 'text-neon-cyan' : 'text-neon-orange';

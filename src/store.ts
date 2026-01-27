@@ -266,31 +266,50 @@ export const useGameStore = create<GameState>((set, get) => ({
   mineObject: (id) => set({ status: 'mining', currentEventId: id }),
 
   extractResource: () => {
-      const { localObjects, currentEventId, cargo, maxCargo } = get()
-      const targetIndex = localObjects.findIndex(obj => obj.id === currentEventId)
-      if (targetIndex === -1) return
+    const { localObjects, currentEventId, cargo, maxCargo } = get()
+    
+    // 1. Знаходимо астероїд
+    const targetIndex = localObjects.findIndex(obj => obj.id === currentEventId)
+    if (targetIndex === -1) return
 
-      const target = localObjects[targetIndex]
-      if (!target.resourceAmount || !target.resourceType) return
+    const target = localObjects[targetIndex]
+    
+    // Перевірка на наявність даних
+    if (!target.data) return 
 
-      const currentLoad = Object.values(cargo).reduce((a, b) => a + b, 0)
-      const spaceLeft = maxCargo - currentLoad
-      if (spaceLeft <= 0) return 
+    const resourceType = target.data.resource
+    const amountAvailable = target.data.amount
 
-      const amount = Math.min(25, target.resourceAmount, spaceLeft)
-      const newObjects = [...localObjects]
-      newObjects[targetIndex] = { ...target, resourceAmount: target.resourceAmount - amount }
+    // 2. Перевірка місця
+    const currentLoad = Object.values(cargo).reduce((a, b) => a + b, 0)
+    if (currentLoad >= maxCargo) return 
+    if (amountAvailable <= 0) return 
 
-      if (newObjects[targetIndex].resourceAmount! <= 0) {
-          // Астероїд вичерпано -> перетворюємо його на пустий камінь або видаляємо
-          newObjects.splice(targetIndex, 1)
-          set({ status: 'space', currentEventId: null })
-      }
+    // 3. Скільки беремо
+    const amountToMine = Math.min(10, amountAvailable, maxCargo - currentLoad)
 
-      set({
-          localObjects: newObjects,
-          cargo: { ...cargo, [target.resourceType]: cargo[target.resourceType] + amount }
-      })
+    // 4. Оновлюємо астероїд (зменшуємо ресурс у ньому)
+    const updatedObjects = [...localObjects]
+    updatedObjects[targetIndex] = {
+        ...target,
+        data: {
+            ...target.data,
+            amount: amountAvailable - amountToMine
+        }
+    }
+
+    // 5. Оновлюємо трюм (cargo)
+    const newCargo = { ...cargo }
+    // 👇 ОСЬ ТУТ БУЛА ПОМИЛКА. ВИПРАВЛЯЄМО:
+    const rKey = resourceType as keyof typeof cargo
+    newCargo[rKey] = (newCargo[rKey] || 0) + amountToMine
+
+    // 6. Записуємо в стейт
+    set({
+        localObjects: updatedObjects,
+        cargo: newCargo,
+        combatLog: [`> Extracted ${amountToMine}T of ${resourceType}`]
+    })
   },
 
   sellResource: (resource) => {
@@ -405,7 +424,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     const { currentSectorType, sectorResources } = get()
     
     // 1. ОЧИЩЕННЯ: Скидаємо старі стани, щоб не було багів з боєм
-    set({ inCombat: false, combatLog: [] })
+    set({ inCombat: false, combatLog: [], currentEventId: null })
 
     // === СЦЕНАРІЙ 1: СТАНЦІЯ ===
     if (currentSectorType === 'station') {
