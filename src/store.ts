@@ -39,6 +39,7 @@ export const calculateFuelCost = (current: string, target: string): number => {
 
 interface GameState {
   status: 'hangar' | 'map' | 'warping' | 'space' | 'mining' | 'combat'
+  currentSectorType: 'wild' | 'station'
   credits: number
   fuel: number
   maxFuel: number
@@ -139,6 +140,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   cargo: { Iron: 0, Gold: 0, DarkMatter: 0 },
   maxCargo: 50,
   modules: ['scanner', 'mining_laser'],
+  currentSectorType: 'wild',
   
   currentSector: '0:0',
   targetSector: null,
@@ -395,31 +397,29 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   scanCurrentSector: () => {
-    const { currentSector } = get()
+    const { currentSectorType } = get() // <--- Дивимось тип
     
-    // ЯКЩО МИ ВДОМА (0:0) — МАЛЮЄМО СТАНЦІЮ
-    if (currentSector === '0:0') {
+    // ЯКЩО ЦЕ СТАНЦІЯ (будь-де, хоч 0:0, хоч 100:100)
+    if (currentSectorType === 'station') {
       set({
         localObjects: [{ 
           id: 'station-alpha', 
-          type: 'station', // <--- Спеціальний тип
+          type: 'station', 
           distance: 1000, 
           scanned: true 
         }],
-        inCombat: false, // Вдома не стріляють
-        combatLog: ['> Welcome to Citadel Station alpha.', '> Systems secure.']
+        inCombat: false,
+        combatLog: ['> Docking beacon detected.', '> Station approach vector locked.']
       })
       return
     }
 
-    // ЯКЩО МИ В ІНШОМУ СЕКТОРІ — РАНДОМ (як було раніше)
+    // ЯКЩО ДИКИЙ КОСМОС (все як раніше)
     const rng = Math.random()
     if (rng > 0.7) {
-       // Ворог
        const enemy: SpaceObject = { id: `enemy-${Date.now()}`, type: 'enemy', distance: 3000, scanned: true }
        set({ localObjects: [enemy], inCombat: true, combatLog: ['> WARNING: HOSTILE SIGNATURE DETECTED!'] })
     } else {
-       // Астероїд
        const asteroid: SpaceObject = { id: `asteroid-${Date.now()}`, type: 'asteroid', distance: 2500, scanned: true }
        set({ localObjects: [asteroid], inCombat: false, combatLog: ['> Asteroid field detected.', '> Mining scanners active.'] })
     }
