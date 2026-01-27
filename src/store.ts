@@ -18,6 +18,11 @@ export interface SpaceObject {
       amount?: number
       module?: string
   }
+  data?: {
+    resource: string
+    amount: number
+    hasRare?: boolean // Можна додати і це на майбутнє для контейнерів
+  }
 }
 
 // Інформація для Карти (легка версія даних)
@@ -397,31 +402,73 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   scanCurrentSector: () => {
-    const { currentSectorType } = get() // <--- Дивимось тип
+    const { currentSectorType, sectorResources } = get()
     
-    // ЯКЩО ЦЕ СТАНЦІЯ (будь-де, хоч 0:0, хоч 100:100)
+    // 1. ОЧИЩЕННЯ: Скидаємо старі стани, щоб не було багів з боєм
+    set({ inCombat: false, combatLog: [] })
+
+    // === СЦЕНАРІЙ 1: СТАНЦІЯ ===
     if (currentSectorType === 'station') {
       set({
         localObjects: [{ 
           id: 'station-alpha', 
           type: 'station', 
-          distance: 1000, 
+          distance: 2000, // Трохи далі, щоб був ефект підльоту
           scanned: true 
         }],
-        inCombat: false,
         combatLog: ['> Docking beacon detected.', '> Station approach vector locked.']
       })
       return
     }
 
-    // ЯКЩО ДИКИЙ КОСМОС (все як раніше)
+    // === СЦЕНАРІЙ 2: ДИКИЙ КОСМОС ===
     const rng = Math.random()
+
+    // 30% шанс на ворога (можеш зменшити до 0.1, якщо занадто часто)
     if (rng > 0.7) {
-       const enemy: SpaceObject = { id: `enemy-${Date.now()}`, type: 'enemy', distance: 3000, scanned: true }
-       set({ localObjects: [enemy], inCombat: true, combatLog: ['> WARNING: HOSTILE SIGNATURE DETECTED!'] })
+       const enemy: SpaceObject = { 
+           id: `enemy-${Date.now()}`, 
+           type: 'enemy', 
+           distance: 3000, 
+           scanned: true 
+       }
+       set({ 
+           localObjects: [enemy], 
+           inCombat: true, 
+           combatLog: ['> WARNING: HOSTILE SIGNATURE DETECTED!', '> Shields UP!'] 
+       })
     } else {
-       const asteroid: SpaceObject = { id: `asteroid-${Date.now()}`, type: 'asteroid', distance: 2500, scanned: true }
-       set({ localObjects: [asteroid], inCombat: false, combatLog: ['> Asteroid field detected.', '> Mining scanners active.'] })
+       // === АСТЕРОЇД (ВИПРАВЛЕНО) ===
+       // Визначаємо, який ресурс показати в цьому секторі
+       // Логіка: Якщо є Золото - показуємо Золото, інакше Залізо
+       let resourceType = 'Iron'
+       let resourceAmount = sectorResources.iron
+
+       if (sectorResources.gold > 0) {
+           resourceType = 'Gold'
+           resourceAmount = sectorResources.gold
+       } else if (sectorResources.darkMatter > 0) {
+           resourceType = 'DarkMatter'
+           resourceAmount = sectorResources.darkMatter
+       }
+
+       const asteroid: SpaceObject = { 
+           id: `asteroid-${Date.now()}`, 
+           type: 'asteroid', 
+           distance: 3000, // Початкова дистанція
+           scanned: true,
+           // 👇 ОСЬ ЧОГО НЕ ВИСТАЧАЛО ДЛЯ МАЙНІНГУ 👇
+           data: {
+             resource: resourceType,
+             amount: resourceAmount
+           }
+       }
+
+       set({ 
+           localObjects: [asteroid], 
+           inCombat: false, 
+           combatLog: [`> Asteroid detected: ${resourceType}`, '> Mining scanners active.'] 
+       })
     }
   },
 

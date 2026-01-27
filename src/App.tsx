@@ -204,7 +204,7 @@ function App() {
       {status === 'map' && <SectorMap />}
       {(status === 'space' || status === 'mining' || status === 'combat') && <SpaceView />}
 
-      {/* === 🆕 ІНДИКАТОР ЗБЕРЕЖЕННЯ (Завжди видно зверху справа) === */}
+      {/* === ІНДИКАТОР ЗБЕРЕЖЕННЯ (Завжди видно зверху справа) === */}
       <div className="absolute top-4 right-4 z-50 flex flex-col items-end gap-2 pointer-events-none">
           {isSaving && (
               <div className="text-neon-cyan text-[10px] font-mono animate-pulse flex items-center gap-1 bg-black/50 px-2 py-1 rounded border border-neon-cyan/30">
