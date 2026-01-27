@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react' // <--- 1. ДОДАЛИ useRef
+import { useState, useEffect, useRef } from 'react'
 import { useGameStore } from './store'
 import { supabase } from './supabase'
 import AuthScreen from './components/AuthScreen'
@@ -16,34 +16,44 @@ function App() {
   const [showStation, setShowStation] = useState(false)
   const [session, setSession] = useState<any>(null)
   
-  // Стани завантаження
-  const [isDataLoaded, setIsDataLoaded] = useState(false)
+  // === СТАНИ ===
+  const [isDataLoaded, setIsDataLoaded] = useState(false) // Чи завантажили ми дані вперше?
   const [loadingData, setLoadingData] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [lastSavedTime, setLastSavedTime] = useState<string>('')
 
-  // 🛡️ ЗАХИСТ ВІД ПОВТОРНИХ ОНОВЛЕНЬ
-  // Ця змінна пам'ятає останній завантажений сектор і не скидається при перемиканні вкладок
+  // 🛡️ ЗАХИСТ: Пам'ятаємо останній ініціалізований сектор, щоб не робити це двічі
   const lastInitializedSector = useRef<string | null>(null) 
 
   // === 1. АВТОРИЗАЦІЯ ===
   useEffect(() => {
+    // Первинна перевірка при запуску
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       if (session) loadUserData(session.user.id)
     })
 
+    // Слухач подій (вхід, вихід, перемикання вкладок)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
-      if (session && !isDataLoaded) loadUserData(session.user.id) // Додав перевірку !isDataLoaded
+      
+      // 👇 КРИТИЧНЕ ВИПРАВЛЕННЯ 👇
+      // Якщо дані ВЖЕ завантажені (ми граємо), то НЕ завантажуємо їх знову при зміні вкладки.
+      // Це запобігає відкату на старий сектор.
+      if (session && !useGameStore.getState().currentSector) { 
+         // (Тут перевірка трохи хитра: ми вантажимо тільки якщо локальний сектор ще не встановлений або ми явно хочемо ресет)
+         // Найкращий варіант: просто покладаємось на isDataLoaded знизу в loadUserData
+         if (!isDataLoaded) loadUserData(session.user.id)
+      }
     })
 
     return () => subscription.unsubscribe()
-  }, [])
+  }, []) // Порожній масив = запускається 1 раз
 
-  // === 2. ЗАВАНТАЖЕННЯ ДАНИХ ===
+  // === 2. ЗАВАНТАЖЕННЯ ПРОФІЛЮ ===
   const loadUserData = async (userId: string) => {
-    if (isDataLoaded) return // Якщо вже завантажили - виходимо
+    // 👇 ЗАХИСТ: Якщо ми вже в грі - не перезаписуємо дані старими з бази!
+    if (isDataLoaded) return 
 
     setLoadingData(true)
     const { data, error } = await supabase
@@ -63,13 +73,13 @@ function App() {
         cargo: data.cargo || {}, 
         visitedSectors: data.visited_sectors || ['0:0']
       })
-      setIsDataLoaded(true) 
-      console.log('✅ DATA LOADED')
+      setIsDataLoaded(true) // ✅ Фіксуємо, що дані є. Більше не вантажимо.
+      console.log('✅ PROFILE LOADED')
     }
     setLoadingData(false)
   }
 
-  // === 3. ЗБЕРЕЖЕННЯ ===
+  // === 3. ЗБЕРЕЖЕННЯ (Global Save) ===
   const saveGame = async (reason: string) => {
     if (!session || !isDataLoaded) return
 
@@ -94,38 +104,43 @@ function App() {
     if (!error) setLastSavedTime(new Date().toLocaleTimeString())
   }
 
-  // === 4. ЛОГІКА СЕКТОРІВ (ГОЛОВНИЙ ФІКС ТУТ) ===
+  // === 4. ЛОГІКА ВХОДУ В СЕКТОР (Warp Logic) ===
   useEffect(() => {
     if (!session || !isDataLoaded) return 
 
-    // 👇 ГОЛОВНА ПЕРЕВІРКА:
-    // Якщо ми вже ініціалізували цей сектор — СТОП. Не робимо це знову при перемиканні вкладок.
-    if (lastInitializedSector.current === currentSector) {
-        return 
-    }
-
-    // Запам'ятовуємо, що ми тут вже були
+    // 👇 Блокуємо повторний запуск коду, якщо ми вже тут
+    if (lastInitializedSector.current === currentSector) return
     lastInitializedSector.current = currentSector
 
     const initSector = async () => {
-        console.log('🌌 INITIALIZING SECTOR:', currentSector) // Має писати тільки 1 раз при варпі
+        console.log('🌌 WARP ARRIVAL:', currentSector)
 
-        // А: Історія
+        // 👇 1. МИТТЄВИЙ ЗАПИС КООРДИНАТ В БАЗУ
+        // Ми не чекаємо saveGame, ми пишемо це прямо зараз, щоб база знала, де ми.
+        if (currentSector !== '0:0') {
+            await supabase.from('profiles').update({ 
+                current_sector: currentSector,
+                updated_at: new Date()
+            }).eq('id', session.user.id)
+        }
+
+        // 2. Історія відвідувань
         const { visitedSectors } = useGameStore.getState()
         if (!visitedSectors.includes(currentSector)) {
             const newVisited = [...visitedSectors, currentSector]
             useGameStore.setState({ visitedSectors: newVisited })
+            // Фонове оновлення історії
             supabase.from('profiles').update({ visited_sectors: newVisited }).eq('id', session.user.id).then()
         }
 
-        // Б: Завантаження даних про сектор
+        // 3. Отримуємо дані про сектор (ресурси)
         let { data: sector } = await supabase
             .from('sectors')
             .select('*')
             .eq('id', currentSector)
             .single()
 
-        // В: Генерація
+        // 4. Генерація нового (якщо ніхто тут не був)
         if (!sector) {
             const newSectorData = {
                 id: currentSector,
@@ -139,7 +154,7 @@ function App() {
             if (!error) sector = newSectorData
         }
 
-        // Г: Оновлення стану
+        // 5. Оновлюємо гру
         if (sector) {
             useGameStore.setState({
                 currentSectorType: sector.sector_type, 
@@ -151,21 +166,20 @@ function App() {
             })
         }
         
-        // Д: Сканування (створення об'єктів)
-        // Це виконається ТІЛЬКИ ОДИН РАЗ, тому об'єкти не будуть скакати
+        // 6. Скануємо (малюємо об'єкти)
         useGameStore.getState().scanCurrentSector()
         
-        // Е: Збереження (Тільки якщо це не старт гри)
+        // 7. Повноцінне збереження (про всяк випадок)
         if (currentSector !== '0:0') {
-             saveGame('Sector Arrival')
+             saveGame('Warp Complete')
         }
     }
 
     initSector()
-  }, [currentSector, session, isDataLoaded]) // Залежності ті самі, але if всередині блокує повтори
+  }, [currentSector, session, isDataLoaded])
 
 
-  // === 5. ТРИГЕРИ ===
+  // === 5. ТРИГЕРИ (Події для збереження) ===
   useEffect(() => {
       if (session && status === 'hangar') saveGame('Enter Hangar')
   }, [status])
@@ -198,7 +212,7 @@ function App() {
       {status === 'map' && <SectorMap />}
       {(status === 'space' || status === 'mining' || status === 'combat') && <SpaceView />}
 
-      {/* UI Elements */}
+      {/* Індикатор збереження */}
       <div className="absolute top-4 right-4 z-50 flex flex-col items-end gap-2 pointer-events-none">
           {isSaving && <div className="text-neon-cyan text-[10px] font-mono animate-pulse flex items-center gap-1 bg-black/50 px-2 py-1 rounded border border-neon-cyan/30"><RotateCcw size={10} className="animate-spin"/> SYNCING...</div>}
           {!isSaving && lastSavedTime && <div className="text-gray-500 text-[10px] font-mono">LAST SYNC: {lastSavedTime}</div>}
@@ -228,7 +242,6 @@ function App() {
               </div>
             </div>
             
-            {/* Slots UI */}
             <div className="flex justify-between items-center h-full px-4 mt-10">
                  <div className="flex flex-col gap-4 pointer-events-auto">
                     <Slot icon={<Shield size={24} />} label="SHIELD" level="LVL 1" color="cyan" />
