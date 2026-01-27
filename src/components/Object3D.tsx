@@ -1,6 +1,6 @@
 import { useRef, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { Mesh, Vector3 } from 'three' //
+import { Mesh } from 'three' //
 
 interface Object3DProps {
   type: 'asteroid' | 'enemy' | 'station' | 'empty' | 'debris' | 'container'
@@ -11,7 +11,6 @@ export default function Object3D({ type, color }: Object3DProps) {
   const meshRef = useRef<Mesh>(null!)
   
   // Початкова позиція "глибоко" в екрані для ефекту прильоту
-  const targetPos = new Vector3(0, 0, 0)
   
   useEffect(() => {
       // При монтуванні (зміні типу) відкидаємо об'єкт назад

@@ -1,11 +1,10 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
+import { useState, useRef, useEffect } from 'react'
+import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Stars } from '@react-three/drei'
 import { useGameStore } from '../store'
 import Object3D from './Object3D'
 import StationMenu from './StationMenu'
 import { Navigation, Scan, Pickaxe, Skull, Database, Home, ShoppingBag, ArrowLeftCircle, Box, Trash2, Crosshair } from 'lucide-react'
-import * as THREE from 'three' //
 
 // Компонент для фонових сигналів (інші об'єкти в секторі)
 function BackgroundSignals({ objects, currentId }: { objects: any[], currentId: string | null }) {
