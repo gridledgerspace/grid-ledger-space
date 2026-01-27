@@ -336,7 +336,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   endCombat: (win) => {
-      const { localObjects, currentEventId, credits } = get()
+      const { localObjects, currentEventId } = get()
       const enemy = localObjects.find(o => o.id === currentEventId)
       const dist = enemy?.distance || 2000
 
