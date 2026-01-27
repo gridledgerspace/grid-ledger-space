@@ -16,6 +16,7 @@ function App() {
   const [showStation, setShowStation] = useState(false)
   
   const [session, setSession] = useState<any>(null)
+  const [isDataLoaded, setIsDataLoaded] = useState(false)
   const [loadingData, setLoadingData] = useState(false)
   
   // Стан для відображення процесу збереження
@@ -147,10 +148,16 @@ function App() {
       })
     }
     setLoadingData(false)
+    setIsDataLoaded(true) 
+    console.log('✅ DATA FULLY LOADED, SAVING ENABLED')
   }
 
   // === ОНОВЛЕНА ФУНКЦІЯ SAVE ===
   const saveGame = async (silent = false) => {
+    if (!session || !isDataLoaded) {
+        if (!silent) console.warn('🚫 Save blocked: Data not loaded yet')
+        return
+    }
     if (!session) return
     setIsSaving(true)
 

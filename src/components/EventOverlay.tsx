@@ -13,16 +13,22 @@ export default function EventOverlay() {
     closeEvent 
   } = useGameStore((state: any) => state)
 
-  // Показуємо тільки якщо статус 'mining' або 'combat'
+  // Показуємо тільки якщо статус 'mining'
   if (status !== 'mining') return null
 
   // Шукаємо об'єкт, з яким взаємодіємо
   const target = localObjects.find((obj: any) => obj.id === currentEventId)
   
-  // Якщо об'єкт зник (видобули все) або не знайдений - закриваємо
-  if (!target && status === 'mining') {
-      // Використовуємо setTimeout, щоб уникнути конфлікту рендеру
-      setTimeout(() => closeEvent(), 0)
+  // === 👇 ВИПРАВЛЕННЯ ТУТ 👇 ===
+  // Читаємо дані з вкладеного об'єкта .data
+  // Якщо data немає, ставимо дефолтні значення, щоб не було помилок
+  const resourceType = target?.data?.resource || 'UNKNOWN'
+  const resourceAmount = target?.data?.amount || 0
+  // ============================
+
+  // Якщо об'єкт зник або у нього закінчились ресурси
+  if (!target || (resourceAmount <= 0 && status === 'mining')) {
+      setTimeout(() => closeEvent(), 500) // Даємо пів секунди прочитати, що ресурс вичерпано
       return null
   }
 
@@ -51,12 +57,14 @@ export default function EventOverlay() {
         <div className="my-6 p-4 bg-space-900/80 rounded border border-white/10 space-y-3">
             <div className="flex justify-between items-center">
                 <span className="text-gray-400 font-mono text-sm">TARGET ORE:</span>
-                <span className="text-white font-bold font-mono text-lg">{target?.resourceType || 'UNKNOWN'}</span>
+                {/* 👇 Використовуємо змінну resourceType */}
+                <span className="text-white font-bold font-mono text-lg">{resourceType}</span>
             </div>
             
             <div className="flex justify-between items-center">
                 <span className="text-gray-400 font-mono text-sm">DEPOSIT SIZE:</span>
-                <span className="text-neon-cyan font-bold font-mono text-lg">{target?.resourceAmount} T</span>
+                {/* 👇 Використовуємо змінну resourceAmount */}
+                <span className="text-neon-cyan font-bold font-mono text-lg">{resourceAmount} T</span>
             </div>
             
             <div className="w-full h-px bg-white/10 my-2" />
@@ -83,7 +91,7 @@ export default function EventOverlay() {
         {hasLaser ? (
             <button
                 onClick={extractResource}
-                disabled={isFull || (target?.resourceAmount || 0) <= 0}
+                disabled={isFull || resourceAmount <= 0}
                 className="w-full py-4 bg-neon-orange text-black font-bold font-mono text-lg hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[0_0_20px_rgba(255,174,0,0.3)] flex items-center justify-center gap-2"
             >
                 {isFull ? 'CARGO FULL' : 'ACTIVATE LASER'}
