@@ -210,7 +210,9 @@ function App() {
 
       {status === 'warping' && <WarpScreen />}
       {status === 'map' && <SectorMap />}
-      {(status === 'space' || status === 'mining' || status === 'combat') && <SpaceView />}
+      {(status === 'space' || status === 'mining' || status === 'combat') && (
+        <SpaceView key={currentSector} /> 
+      )}
 
       {/* Індикатор збереження */}
       <div className="absolute top-4 right-4 z-50 flex flex-col items-end gap-2 pointer-events-none">
