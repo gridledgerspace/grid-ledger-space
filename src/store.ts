@@ -65,6 +65,7 @@ interface GameState {
   sectorStates: Record<string, SpaceObject[]> // ПОВНИЙ ЗЛІПОК ОБ'ЄКТІВ (щоб не фармили безкінечно)
   
   currentEventId: string | null
+  
 
   inCombat: boolean
   enemyMaxHp: number
@@ -76,6 +77,7 @@ interface GameState {
   setTargetSector: (sector: string) => void
   startWarp: () => void
   completeWarp: () => void
+  scanCurrentSector: () => void
   
   scanSystem: () => void
   mineObject: (id: string) => void
@@ -390,6 +392,37 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       set({ credits: newCredits, cargo: newCargo, localObjects: newObjects, currentEventId: null })
       alert(msg)
+  },
+
+  scanCurrentSector: () => {
+    const { currentSector } = get()
+    
+    // ЯКЩО МИ ВДОМА (0:0) — МАЛЮЄМО СТАНЦІЮ
+    if (currentSector === '0:0') {
+      set({
+        localObjects: [{ 
+          id: 'station-alpha', 
+          type: 'station', // <--- Спеціальний тип
+          distance: 1000, 
+          scanned: true 
+        }],
+        inCombat: false, // Вдома не стріляють
+        combatLog: ['> Welcome to Citadel Station alpha.', '> Systems secure.']
+      })
+      return
+    }
+
+    // ЯКЩО МИ В ІНШОМУ СЕКТОРІ — РАНДОМ (як було раніше)
+    const rng = Math.random()
+    if (rng > 0.7) {
+       // Ворог
+       const enemy: SpaceObject = { id: `enemy-${Date.now()}`, type: 'enemy', distance: 3000, scanned: true }
+       set({ localObjects: [enemy], inCombat: true, combatLog: ['> WARNING: HOSTILE SIGNATURE DETECTED!'] })
+    } else {
+       // Астероїд
+       const asteroid: SpaceObject = { id: `asteroid-${Date.now()}`, type: 'asteroid', distance: 2500, scanned: true }
+       set({ localObjects: [asteroid], inCombat: false, combatLog: ['> Asteroid field detected.', '> Mining scanners active.'] })
+    }
   },
 
   closeEvent: () => set({ status: 'space', currentEventId: null })
