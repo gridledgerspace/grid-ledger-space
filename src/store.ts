@@ -38,6 +38,7 @@ export const calculateFuelCost = (current: string, target: string): number => {
 }
 
 interface GameState {
+  status: 'hangar' | 'map' | 'warping' | 'space' | 'mining' | 'combat'
   credits: number
   fuel: number
   maxFuel: number
@@ -49,7 +50,13 @@ interface GameState {
 
   currentSector: string
   targetSector: string | null
-  status: 'hangar' | 'map' | 'warping' | 'space' | 'mining' | 'combat'
+
+  visitedSectors: string[] // Список відвіданих секторів
+  sectorResources: {       // Ресурси, які доступні в даному секторі (спільні)
+    iron: number
+    gold: number
+    darkMatter: number
+  }
 
   localObjects: SpaceObject[]
   
@@ -63,6 +70,8 @@ interface GameState {
   enemyMaxHp: number
   enemyHp: number
   combatLog: string[]
+
+  
 
   setTargetSector: (sector: string) => void
   startWarp: () => void
@@ -119,6 +128,7 @@ const generateLocalObjects = (sectorId: string): SpaceObject[] => {
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
+  status: 'hangar',
   credits: 1000,
   fuel: 100,
   maxFuel: 100,
@@ -130,7 +140,9 @@ export const useGameStore = create<GameState>((set, get) => ({
   
   currentSector: '0:0',
   targetSector: null,
-  status: 'hangar',
+
+  visitedSectors: ['0:0'],
+  sectorResources: { iron: 0, gold: 0, darkMatter: 0 },
   
   localObjects: [],
   scannedSectors: {

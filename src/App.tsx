@@ -39,10 +39,63 @@ function App() {
   // === АВТОЗБЕРЕЖЕННЯ  ===
   // 1. Зберігаємось при зміні СЕКТОРУ (Це і є успішний Варп)
   useEffect(() => {
-      if (session && currentSector !== '0:0') { // Ігноруємо стартову ініціалізацію
-          saveGame(true)
-      }
-  }, [currentSector]) // Спрацьовує тільки коли змінюються цифри сектору
+    if (!session || currentSector === '0:0') return
+
+    const initSector = async () => {
+        // 1. Оновлюємо "Відвідані сектори" в профілі гравця
+        const { visitedSectors } = useGameStore.getState()
+        if (!visitedSectors.includes(currentSector)) {
+            const newVisited = [...visitedSectors, currentSector]
+            useGameStore.setState({ visitedSectors: newVisited })
+            
+            // Зберігаємо в базу (оновлюємо масив visited_sectors)
+            await supabase.from('profiles').update({ 
+                visited_sectors: newVisited 
+            }).eq('id', session.user.id)
+        }
+
+        // 2. Перевіряємо, чи існує сектор у Глобальній Мапі
+        let { data: sector} = await supabase
+            .from('sectors')
+            .select('*')
+            .eq('id', currentSector)
+            .single()
+
+        // 3. Якщо сектору немає — ми ПЕРШОВІДКРИВАЧІ! Генеруємо його.
+        if (!sector) {
+            console.log('🆕 DISCOVERING NEW SECTOR:', currentSector)
+            const newSectorData = {
+                id: currentSector,
+                discovered_by: session.user.id,
+                // Рандомна кількість ресурсів на весь сектор
+                iron_amount: Math.floor(Math.random() * 500) + 100, 
+                gold_amount: Math.floor(Math.random() * 200),
+                dark_matter_amount: Math.random() > 0.9 ? Math.floor(Math.random() * 50) : 0
+            }
+            
+            const { error: insertError } = await supabase
+                .from('sectors')
+                .insert(newSectorData)
+            
+            if (!insertError) sector = newSectorData
+        } else {
+            console.log('📡 SECTOR DATA LOADED:', sector)
+        }
+
+        // 4. Оновлюємо локальний стан (щоб UI знав, скільки тут ресурсів)
+        if (sector) {
+            useGameStore.setState({
+                sectorResources: {
+                    iron: sector.iron_amount,
+                    gold: sector.gold_amount,
+                    darkMatter: sector.dark_matter_amount
+                }
+            })
+        }
+    }
+
+    initSector()
+  }, [currentSector, session])
 
   // 2. Зберігаємось при вході в АНГАР (Це покриває і Смерть, і Стикування)
   useEffect(() => {
