@@ -1,32 +1,72 @@
 import { useState, useRef, useEffect } from 'react'
-import { Canvas } from '@react-three/fiber'
+import { Canvas, useFrame } from '@react-three/fiber' // <--- 1. ДОДАЛИ useFrame
 import { OrbitControls, Stars } from '@react-three/drei'
 import { useGameStore } from '../store'
 import Object3D from './Object3D'
 import StationMenu from './StationMenu'
 import { Navigation, Scan, Pickaxe, Skull, Database, Home, ShoppingBag, ArrowLeftCircle, Box, Trash2, Crosshair } from 'lucide-react'
 
-// Компонент для фонових сигналів (інші об'єкти в секторі)
+// === 👇 2. НОВИЙ КОМПОНЕНТ: ДВИГУН ГРИ 👇 ===
+// Цей компонент відповідає за зменшення дистанції (політ)
+function GameLoop() {
+  const { inCombat, status } = useGameStore()
+
+  useFrame((state, delta) => {
+    // Не рухаємось, якщо бій або майнінг
+    if (inCombat || status === 'mining') return
+
+    const store = useGameStore.getState()
+    const objects = store.localObjects
+
+    // Якщо немає об'єктів - виходимо
+    if (objects.length === 0) return
+
+    // Завжди наближаємось до ПЕРШОГО об'єкта в списку (або вибраного)
+    // В цьому прикладі беремо перший (Target[0]), бо він зазвичай основний
+    const target = objects[0]
+
+    // Якщо ми ще далеко (> 200 км)
+    if (target.distance > 200) {
+       // Розрахунок швидкості: чим далі, тим швидше летимо.
+       // Мінімум 50 км/с, або 10% від дистанції
+       const speed = Math.max(50, target.distance * 0.2) 
+       
+       // Нова дистанція
+       const newDist = Math.max(200, target.distance - (speed * delta))
+
+       // Оновлюємо Store (це змусить React перемалювати цифри на екрані)
+       // Ми оновлюємо ТІЛЬКИ якщо дистанція змінилась на ціле число (оптимізація)
+       if (Math.floor(newDist) !== Math.floor(target.distance)) {
+           useGameStore.setState({
+               localObjects: objects.map(o => 
+                   o.id === target.id ? { ...o, distance: Math.floor(newDist) } : o
+               )
+           })
+       }
+    }
+  })
+
+  return null
+}
+// ============================================
+
+// Компонент для фонових сигналів
 function BackgroundSignals({ objects, currentId }: { objects: any[], currentId: string | null }) {
-    // Фільтруємо об'єкт, який зараз перед нами, щоб не дублювати його
     const others = objects.filter(o => o.id !== currentId)
 
     return (
         <group>
             {others.map((obj, i) => {
-                // Генеруємо випадкову позицію на сфері навколо гравця
-                // Використовуємо індекс для стабільності позиції
                 const angle = (i / others.length) * Math.PI * 2
-                const radius = 15 // Радіус орбіти фонових сигналів
+                const radius = 15
                 const x = Math.cos(angle) * radius
                 const z = Math.sin(angle) * radius
-                const y = Math.sin(angle * 3) * 5 // Трохи хвилеподібно по висоті
+                const y = Math.sin(angle * 3) * 5
 
                 return (
                     <mesh key={obj.id} position={[x, y, z]}>
                         <sphereGeometry args={[0.2, 8, 8]} />
                         <meshBasicMaterial color="#555" wireframe />
-                        {/* Лінія до "землі" для стилю тактичної карти */}
                         <lineSegments>
                             <bufferGeometry />
                             <lineBasicMaterial color="#222" />
@@ -55,15 +95,16 @@ export default function SpaceView() {
   const [showStationMenu, setShowStationMenu] = useState(false)
   
   const logEndRef = useRef<HTMLDivElement>(null)
-  const selectedObj = localObjects.find(o => o.id === selectedId)
+  
+  // Якщо вибраний ID існує, беремо об'єкт, інакше (якщо null) беремо перший зі списку
+  const selectedObj = localObjects.find(o => o.id === selectedId) || localObjects[0]
 
-  // 1. АВТОМАТИЧНИЙ ВИБІР НАЙБЛИЖЧОГО ОБ'ЄКТА ПРИ ВХОДІ
+  // АВТОМАТИЧНИЙ ВИБІР: При завантаженні або зміні об'єктів
   useEffect(() => {
-      // Якщо об'єкти є, але нічого не вибрано - обираємо перший (зазвичай найближчий або станцію)
       if (localObjects.length > 0 && !selectedId) {
-          handleSelect(localObjects[0].id)
+          setSelectedId(localObjects[0].id)
       }
-  }, [localObjects, selectedId])
+  }, [localObjects])
 
   useEffect(() => {
       logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -103,17 +144,20 @@ export default function SpaceView() {
       
       {/* 3D СЦЕНА */}
       <div className="absolute inset-0 z-0">
-         <Canvas camera={{ position: [0, 0, 8], fov: 60 }}> {/* Трохи віддалили камеру для ефекту */}
+         <Canvas camera={{ position: [0, 0, 8], fov: 60 }}>
             <ambientLight intensity={0.5} />
             <pointLight position={[10, 10, 10]} intensity={1} color="#ffae00" />
             <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={0.5} />
             
-            {/* ГОЛОВНИЙ ОБ'ЄКТ (З ефектом прильоту) */}
+            {/* 👇 3. ВКЛЮЧАЄМО ДВИГУН ТУТ 👇 */}
+            <GameLoop /> 
+            {/* ============================= */}
+
+            {/* ГОЛОВНИЙ ОБ'ЄКТ */}
             {selectedObj && !isSwitching && selectedObj.scanned && (
                 <Object3D type={selectedObj.type} color={getObjectColor(selectedObj.type)} />
             )}
 
-            {/* ФОНОВІ СИГНАЛИ (Інші об'єкти на відстані) */}
             <BackgroundSignals objects={localObjects} currentId={selectedId} />
             
             <OrbitControls enableZoom={false} autoRotate autoRotateSpeed={inCombat ? 0.2 : 0.5} />
@@ -135,72 +179,73 @@ export default function SpaceView() {
 
       {/* ЦЕНТРАЛЬНИЙ HUD */}
       <div className="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between p-6">
-         
-         {/* ВЕРХ */}
-         <div className={`text-center transition-opacity duration-500 ${inCombat ? 'opacity-0' : 'opacity-100'}`}>
-             <h1 className="text-4xl font-mono text-neon-cyan font-bold tracking-widest drop-shadow-[0_0_10px_rgba(0,240,255,0.5)]">
-                 SECTOR {currentSector}
-             </h1>
-             <p className="text-xs text-gray-500 font-mono">SYSTEM SCAN COMPLETE</p>
-         </div>
+          
+          {/* ВЕРХ */}
+          <div className={`text-center transition-opacity duration-500 ${inCombat ? 'opacity-0' : 'opacity-100'}`}>
+              <h1 className="text-4xl font-mono text-neon-cyan font-bold tracking-widest drop-shadow-[0_0_10px_rgba(0,240,255,0.5)]">
+                  SECTOR {currentSector}
+              </h1>
+              <p className="text-xs text-gray-500 font-mono">SYSTEM SCAN COMPLETE</p>
+          </div>
 
-         {/* ЦЕНТР */}
-         <div className="flex items-center justify-center pointer-events-auto">
-            {selectedObj && !inCombat ? (
-                <div className={`glass-panel p-6 border border-neon-cyan/30 rounded-xl text-center min-w-[300px] transition-all duration-500 ${isSwitching ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}>
-                    <h2 className="text-2xl font-bold font-mono text-white mb-1">
-                        {selectedObj.scanned ? selectedObj.type.toUpperCase() : 'UNKNOWN SIGNAL'}
-                    </h2>
-                    <p className="text-xs text-gray-400 font-mono mb-6">
-                        DISTANCE: <span className="text-neon-cyan">{selectedObj.distance} KM</span> (APPROACHING)
-                    </p>
+          {/* ЦЕНТР */}
+          <div className="flex items-center justify-center pointer-events-auto">
+             {selectedObj && !inCombat ? (
+                 <div className={`glass-panel p-6 border border-neon-cyan/30 rounded-xl text-center min-w-[300px] transition-all duration-500 ${isSwitching ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}>
+                     <h2 className="text-2xl font-bold font-mono text-white mb-1">
+                         {selectedObj.scanned ? selectedObj.type.toUpperCase() : 'UNKNOWN SIGNAL'}
+                     </h2>
+                     <p className="text-xs text-gray-400 font-mono mb-6">
+                         DISTANCE: <span className="text-neon-cyan">{selectedObj.distance} KM</span> (APPROACHING)
+                     </p>
 
-                    <div className="flex flex-col gap-3">
-                        {!selectedObj.scanned && (
-                            <button onClick={scanSystem} className="py-3 bg-neon-cyan/20 border border-neon-cyan text-neon-cyan hover:bg-neon-cyan hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2">
-                                <Scan size={18}/> ANALYZE SIGNATURE
-                            </button>
-                        )}
+                     <div className="flex flex-col gap-3">
+                         {/* КНОПКИ ДІЙ */}
+                         {!selectedObj.scanned && (
+                             <button onClick={scanSystem} className="py-3 bg-neon-cyan/20 border border-neon-cyan text-neon-cyan hover:bg-neon-cyan hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2">
+                                 <Scan size={18}/> ANALYZE SIGNATURE
+                             </button>
+                         )}
 
-                        {selectedObj.scanned && selectedObj.type === 'station' && (
-                            <>
-                                <button onClick={() => setShowStationMenu(true)} className="py-3 bg-neon-orange/20 border border-neon-orange text-neon-orange hover:bg-neon-orange hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2">
-                                    <ShoppingBag size={18}/> OPEN MARKET
-                                </button>
-                                <button onClick={() => useGameStore.setState({ status: 'hangar' })} className="py-3 border border-white/20 text-gray-300 hover:bg-white/10 font-mono transition-all flex items-center justify-center gap-2">
-                                    <ArrowLeftCircle size={18}/> DOCK
-                                </button>
-                            </>
-                        )}
+                         {selectedObj.scanned && selectedObj.type === 'station' && (
+                             <>
+                                 <button onClick={() => setShowStationMenu(true)} className="py-3 bg-neon-orange/20 border border-neon-orange text-neon-orange hover:bg-neon-orange hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2">
+                                     <ShoppingBag size={18}/> OPEN MARKET
+                                 </button>
+                                 <button onClick={() => useGameStore.setState({ status: 'hangar' })} className="py-3 border border-white/20 text-gray-300 hover:bg-white/10 font-mono transition-all flex items-center justify-center gap-2">
+                                     <ArrowLeftCircle size={18}/> DOCK
+                                 </button>
+                             </>
+                         )}
 
-                        {selectedObj.scanned && selectedObj.type === 'asteroid' && (
-                            <button onClick={() => mineObject(selectedObj.id)} className="py-3 bg-neon-cyan/10 border border-neon-cyan text-neon-cyan hover:bg-neon-cyan hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2">
-                                <Pickaxe size={18}/> MINE RESOURCES
-                            </button>
-                        )}
+                         {selectedObj.scanned && selectedObj.type === 'asteroid' && (
+                             <button onClick={() => mineObject(selectedObj.id)} className="py-3 bg-neon-cyan/10 border border-neon-cyan text-neon-cyan hover:bg-neon-cyan hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2">
+                                 <Pickaxe size={18}/> MINE RESOURCES
+                             </button>
+                         )}
 
-                        {selectedObj.scanned && selectedObj.type === 'enemy' && (
-                            <button onClick={() => startCombat(selectedObj.id)} className="py-3 bg-neon-red/20 border border-neon-red text-neon-red hover:bg-neon-red hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2">
-                                <Skull size={18}/> ENGAGE HOSTILE
-                            </button>
-                        )}
+                         {selectedObj.scanned && selectedObj.type === 'enemy' && (
+                             <button onClick={() => startCombat(selectedObj.id)} className="py-3 bg-neon-red/20 border border-neon-red text-neon-red hover:bg-neon-red hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2">
+                                 <Skull size={18}/> ENGAGE HOSTILE
+                             </button>
+                         )}
 
-                        {selectedObj.scanned && selectedObj.type === 'container' && (
-                            <button onClick={() => openContainer(selectedObj.id)} className="py-3 bg-yellow-500/20 border border-yellow-500 text-yellow-500 hover:bg-yellow-500 hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2">
-                                <Box size={18}/> COLLECT REWARD
-                            </button>
-                        )}
+                         {selectedObj.scanned && selectedObj.type === 'container' && (
+                             <button onClick={() => openContainer(selectedObj.id)} className="py-3 bg-yellow-500/20 border border-yellow-500 text-yellow-500 hover:bg-yellow-500 hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2">
+                                 <Box size={18}/> COLLECT REWARD
+                             </button>
+                         )}
 
-                         {selectedObj.scanned && selectedObj.type === 'debris' && (
-                            <div className="text-gray-500 font-mono text-xs">
-                                WRECKAGE TOO DAMAGED TO SALVAGE
-                            </div>
-                        )}
-                    </div>
-                </div>
-            ) : null}
-         </div>
-         <div className="h-10"></div>
+                          {selectedObj.scanned && selectedObj.type === 'debris' && (
+                             <div className="text-gray-500 font-mono text-xs">
+                                 WRECKAGE TOO DAMAGED TO SALVAGE
+                             </div>
+                         )}
+                     </div>
+                 </div>
+             ) : null}
+          </div>
+          <div className="h-10"></div>
       </div>
 
       {/* ПРАВА ПАНЕЛЬ */}
