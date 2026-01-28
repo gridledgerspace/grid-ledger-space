@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { supabase } from './supabase'
 
 export type EntityType = 'asteroid' | 'enemy' | 'station' | 'empty' | 'debris' | 'container'
 export type ResourceType = 'Iron' | 'Gold' | 'DarkMatter'
@@ -43,7 +44,7 @@ export const calculateFuelCost = (current: string, target: string): number => {
 }
 
 interface GameState {
-  status: 'hangar' | 'map' | 'warping' | 'space' | 'mining' | 'combat'
+  status: 'hangar' | 'map' | 'warping' | 'space' | 'mining' | 'combat' | 'debris'
   currentSectorType: 'wild' | 'station'
   credits: number
   fuel: number
@@ -265,53 +266,6 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   mineObject: (id) => set({ status: 'mining', currentEventId: id }),
 
-  extractResource: () => {
-    const { localObjects, currentEventId, cargo, maxCargo } = get()
-    
-    // 1. Знаходимо астероїд
-    const targetIndex = localObjects.findIndex(obj => obj.id === currentEventId)
-    if (targetIndex === -1) return
-
-    const target = localObjects[targetIndex]
-    
-    // Перевірка на наявність даних
-    if (!target.data) return 
-
-    const resourceType = target.data.resource
-    const amountAvailable = target.data.amount
-
-    // 2. Перевірка місця
-    const currentLoad = Object.values(cargo).reduce((a, b) => a + b, 0)
-    if (currentLoad >= maxCargo) return 
-    if (amountAvailable <= 0) return 
-
-    // 3. Скільки беремо
-    const amountToMine = Math.min(10, amountAvailable, maxCargo - currentLoad)
-
-    // 4. Оновлюємо астероїд (зменшуємо ресурс у ньому)
-    const updatedObjects = [...localObjects]
-    updatedObjects[targetIndex] = {
-        ...target,
-        data: {
-            ...target.data,
-            amount: amountAvailable - amountToMine
-        }
-    }
-
-    // 5. Оновлюємо трюм (cargo)
-    const newCargo = { ...cargo }
-    // 👇 ОСЬ ТУТ БУЛА ПОМИЛКА. ВИПРАВЛЯЄМО:
-    const rKey = resourceType as keyof typeof cargo
-    newCargo[rKey] = (newCargo[rKey] || 0) + amountToMine
-
-    // 6. Записуємо в стейт
-    set({
-        localObjects: updatedObjects,
-        cargo: newCargo,
-        combatLog: [`> Extracted ${amountToMine}T of ${resourceType}`]
-    })
-  },
-
   sellResource: (resource) => {
       const { cargo, credits } = get()
       const amount = cargo[resource]
@@ -420,75 +374,217 @@ export const useGameStore = create<GameState>((set, get) => ({
       alert(msg)
   },
 
-  scanCurrentSector: () => {
-    const { currentSectorType, sectorResources } = get()
+  scanCurrentSector: async () => {
+    const { currentSector, currentSectorType, sectorResources } = get()
     
-    // 1. ОЧИЩЕННЯ: Скидаємо старі стани, щоб не було багів з боєм
     set({ inCombat: false, combatLog: [], currentEventId: null })
 
-    // === СЦЕНАРІЙ 1: СТАНЦІЯ ===
+    // А: СТАНЦІЯ
     if (currentSectorType === 'station') {
       set({
         localObjects: [{ 
-          id: 'station-alpha', 
-          type: 'station', 
-          distance: 2000, // Трохи далі, щоб був ефект підльоту
-          scanned: true 
+          id: 'station-alpha', type: 'station', distance: 2000, scanned: true 
         }],
-        combatLog: ['> Docking beacon detected.', '> Station approach vector locked.']
+        combatLog: ['> Docking beacon detected.']
       })
       return
     }
 
-    // === СЦЕНАРІЙ 2: ДИКИЙ КОСМОС ===
-    const rng = Math.random()
+    // Б: ПЕРЕВІРКА НА ВІДНОВЛЕННЯ РЕСУРСІВ (3 ГОДИНИ)
+    // Нам треба перевірити це ще раз, бо дані могли застаріти з моменту завантаження
+    let currentResources = { ...sectorResources }
+    
+    const { data: sectorData } = await supabase
+        .from('sectors')
+        .select('last_depleted_at, iron_amount, gold_amount, dark_matter_amount')
+        .eq('id', currentSector)
+        .single()
 
-    // 30% шанс на ворога (можеш зменшити до 0.1, якщо занадто часто)
-    if (rng > 0.7) {
-       const enemy: SpaceObject = { 
-           id: `enemy-${Date.now()}`, 
-           type: 'enemy', 
-           distance: 3000, 
-           scanned: true 
-       }
-       set({ 
-           localObjects: [enemy], 
-           inCombat: true, 
-           combatLog: ['> WARNING: HOSTILE SIGNATURE DETECTED!', '> Shields UP!'] 
-       })
-    } else {
-       // === АСТЕРОЇД (ВИПРАВЛЕНО) ===
-       // Визначаємо, який ресурс показати в цьому секторі
-       // Логіка: Якщо є Золото - показуємо Золото, інакше Залізо
-       let resourceType = 'Iron'
-       let resourceAmount = sectorResources.iron
+    if (sectorData && sectorData.last_depleted_at) {
+        const depletedTime = new Date(sectorData.last_depleted_at).getTime()
+        const now = new Date().getTime()
+        const hoursPassed = (now - depletedTime) / (1000 * 60 * 60)
 
-       if (sectorResources.gold > 0) {
-           resourceType = 'Gold'
-           resourceAmount = sectorResources.gold
-       } else if (sectorResources.darkMatter > 0) {
-           resourceType = 'DarkMatter'
-           resourceAmount = sectorResources.darkMatter
-       }
+        if (hoursPassed >= 3) {
+            console.log('♻️ SECTOR REGENERATED!')
+            // Відновлюємо ресурси в базі
+            const newIron = Math.floor(Math.random() * 500) + 100
+            const newGold = Math.floor(Math.random() * 200)
+            
+            await supabase.from('sectors').update({
+                iron_amount: newIron,
+                gold_amount: newGold,
+                last_depleted_at: null // Скидаємо таймер
+            }).eq('id', currentSector)
 
-       const asteroid: SpaceObject = { 
-           id: `asteroid-${Date.now()}`, 
-           type: 'asteroid', 
-           distance: 3000, // Початкова дистанція
-           scanned: true,
-           // 👇 ОСЬ ЧОГО НЕ ВИСТАЧАЛО ДЛЯ МАЙНІНГУ 👇
-           data: {
-             resource: resourceType,
-             amount: resourceAmount
-           }
-       }
-
-       set({ 
-           localObjects: [asteroid], 
-           inCombat: false, 
-           combatLog: [`> Asteroid detected: ${resourceType}`, '> Mining scanners active.'] 
-       })
+            currentResources = { iron: newIron, gold: newGold, darkMatter: 0 }
+            
+            // Оновлюємо локальний стор
+            set({ sectorResources: currentResources })
+        }
     }
+
+    // В: ВОРОГИ (Залишаємо як було)
+    const rng = Math.random()
+    if (rng > 0.8) { // 20% шанс на ворога
+       const enemy: SpaceObject = { id: `enemy-${Date.now()}`, type: 'enemy', distance: 3000, scanned: true }
+       set({ 
+           localObjects: [enemy], inCombat: true, 
+           combatLog: ['> ⚠️ WARNING: HOSTILE SIGNATURE DETECTED!'] 
+       })
+       return
+    }
+
+    // Г: ГЕНЕРАЦІЯ АСТЕРОЇДІВ (МУЛЬТИ-ОБ'ЄКТИ) ☄️☄️☄️
+    const objects: SpaceObject[] = []
+    
+    // Перевіряємо загальну кількість ресурсів
+    const totalIron = currentResources.iron
+    const totalGold = currentResources.gold
+    const totalDark = currentResources.darkMatter
+
+    const totalResources = totalIron + totalGold + totalDark
+
+    // Якщо ресурсів 0 — сектор ПУСТИЙ (УЛАМКИ)
+    if (totalResources <= 0) {
+        // Генеруємо 3-5 уламків
+        const debrisCount = Math.floor(Math.random() * 3) + 3
+        for (let i = 0; i < debrisCount; i++) {
+            objects.push({
+                id: `debris-${i}`,
+                type: 'debris',
+                distance: 2000 + Math.random() * 2000,
+                scanned: true
+            })
+        }
+        set({ 
+            localObjects: objects, 
+            combatLog: ['> Sector depleted.', '> Traces of previous mining detected.'] 
+        })
+        return
+    }
+
+    // Якщо ресурси Є — розбиваємо їх на декілька астероїдів
+    // Наприклад, створимо 2-4 астероїди
+    const asteroidCount = Math.floor(Math.random() * 3) + 2 
+    
+    // Розподіляємо ресурси (спрощено: просто ділимо порівну або рандомно)
+    // Тут ми зробимо так: створимо кілька об'єктів, кожен матиме частину ресурсів
+    
+    let remainingIron = totalIron
+    let remainingGold = totalGold
+
+    for (let i = 0; i < asteroidCount; i++) {
+        const isLast = i === asteroidCount - 1
+        
+        // Визначаємо долю ресурсів для цього каменю (якщо останній - забирає все, що лишилось)
+        const ironChunk = isLast ? remainingIron : Math.floor(remainingIron / (asteroidCount - i))
+        const goldChunk = isLast ? remainingGold : Math.floor(remainingGold / (asteroidCount - i))
+        
+        remainingIron -= ironChunk
+        remainingGold -= goldChunk
+
+        const hasGold = goldChunk > 0
+        const resourceType = hasGold ? 'Gold' : 'Iron'
+        const amount = hasGold ? goldChunk : ironChunk
+
+        if (amount > 0) {
+            objects.push({
+                id: `asteroid-${i}-${Date.now()}`,
+                type: 'asteroid',
+                distance: 2500 + (i * 1000), // Кожен наступний далі
+                scanned: true,
+                data: {
+                    resource: resourceType,
+                    amount: amount
+                }
+            })
+        }
+    }
+
+    set({ 
+        localObjects: objects, 
+        combatLog: [`> Scanners found ${objects.length} mineral deposits.`] 
+    })
+  },
+
+  extractResource: async () => {
+    const { localObjects, currentEventId, cargo, maxCargo, currentSector, sectorResources } = get()
+    
+    const targetIndex = localObjects.findIndex(obj => obj.id === currentEventId)
+    if (targetIndex === -1) return
+
+    const target = localObjects[targetIndex]
+    if (!target.data) return 
+
+    const resourceType = target.data.resource // 'Iron' | 'Gold'
+    const amountAvailable = target.data.amount
+
+    // Перевірки
+    const currentLoad = Object.values(cargo).reduce((a, b) => a + b, 0)
+    if (currentLoad >= maxCargo) return 
+    if (amountAvailable <= 0) return 
+
+    // Видобуваємо 10 або менше
+    const amountToMine = Math.min(10, amountAvailable, maxCargo - currentLoad)
+
+    // 1. ОНОВЛЮЄМО ЛОКАЛЬНИЙ ОБ'ЄКТ (Зменшуємо в астероїді)
+    const updatedObjects = [...localObjects]
+    updatedObjects[targetIndex] = {
+        ...target,
+        data: { ...target.data, amount: amountAvailable - amountToMine }
+    }
+
+    // Якщо в астероїді закінчилось все — міняємо його тип на 'debris' (УЛАМКИ)
+    if (updatedObjects[targetIndex].data!.amount <= 0) {
+        updatedObjects[targetIndex].type = 'debris'
+        // updatedObjects[targetIndex].data = undefined // Можна очистити дані
+    }
+
+    // 2. ОНОВЛЮЄМО ВАНТАЖ
+    const newCargo = { ...cargo }
+    const rKey = resourceType as keyof typeof cargo
+    newCargo[rKey] = (newCargo[rKey] || 0) + amountToMine
+
+    // 3. ОНОВЛЮЄМО ГЛОБАЛЬНІ РЕСУРСИ СЕКТОРА (Для бази)
+    const newSectorResources = { ...sectorResources }
+    if (resourceType === 'Iron') newSectorResources.iron -= amountToMine
+    if (resourceType === 'Gold') newSectorResources.gold -= amountToMine
+    if (resourceType === 'DarkMatter') newSectorResources.darkMatter -= amountToMine
+
+    // Ставимо стани
+    set({
+        localObjects: updatedObjects,
+        cargo: newCargo,
+        sectorResources: newSectorResources, // Важливо оновити це, щоб знати коли 0
+        combatLog: [`> Extracted ${amountToMine}T of ${resourceType}`]
+    })
+
+    // 4. 🔥 ЗАПИС В БАЗУ ДАНИХ (Асинхронно)
+    // Визначаємо колонку в БД
+    const dbColumn = resourceType === 'Iron' ? 'iron_amount' : (resourceType === 'Gold' ? 'gold_amount' : 'dark_matter_amount')
+    
+    // Перевіряємо, чи сектор повністю пустий
+    const isTotallyEmpty = (newSectorResources.iron + newSectorResources.gold + newSectorResources.darkMatter) <= 0
+    
+    const updateData: any = { [dbColumn]: Math.max(0, newSectorResources[resourceType === 'Iron' ? 'iron' : 'gold']) } // тут спрощення, треба брати правильне поле
+    
+    // Краще передати конкретне значення
+    if (resourceType === 'Iron') updateData.iron_amount = newSectorResources.iron
+    if (resourceType === 'Gold') updateData.gold_amount = newSectorResources.gold
+    
+    if (isTotallyEmpty) {
+        updateData.last_depleted_at = new Date().toISOString()
+        console.log('⚠️ SECTOR DEPLETED! Respawn timer started.')
+    }
+
+    // Відправляємо update (без await, щоб не блокувати гру, "Fire and Forget")
+    supabase.from('sectors')
+        .update(updateData)
+        .eq('id', currentSector)
+        .then(({ error }) => {
+            if (error) console.error('Mining sync error:', error)
+        })
   },
 
   closeEvent: () => set({ status: 'space', currentEventId: null })
