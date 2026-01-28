@@ -11,7 +11,7 @@ import { Navigation, Scan, Pickaxe, Skull, Database, Home, ShoppingBag, ArrowLef
 function GameLoop() {
   const { inCombat, status } = useGameStore()
 
-  useFrame((state, delta) => {
+  useFrame((_state, delta) => {
     // Не рухаємось, якщо бій або майнінг
     if (inCombat || status === 'mining') return
 
