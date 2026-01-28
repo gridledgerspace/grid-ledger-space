@@ -400,20 +400,32 @@ export const useGameStore = create<GameState>((set, get) => ({
   // === 🔥 ВИПРАВЛЕНО: Функція перейменована на buyFuel (Fix Bug #2) ===
   buyFuel: () => {
       const { fuel, maxFuel, credits } = get()
-      if (fuel >= maxFuel) return // Бак повний
+      
+      // Якщо бак повний - виходимо
+      if (fuel >= maxFuel) {
+          console.log('Fuel tank is full')
+          return 
+      }
       
       const missing = maxFuel - fuel
       const costPerUnit = 2
       const cost = missing * costPerUnit
 
       if (credits >= cost) {
-          // Повний бак
+          // Вистачає на повний бак
           set({ fuel: maxFuel, credits: credits - cost })
+          console.log(`Refueled full: -${cost} CR`)
       } else {
           // Заливаємо на скільки вистачить грошей
           const possibleAmount = Math.floor(credits / costPerUnit)
           if (possibleAmount > 0) {
-             set({ fuel: fuel + possibleAmount, credits: credits - (possibleAmount * costPerUnit) })
+             set({ 
+                 fuel: fuel + possibleAmount, 
+                 credits: credits - (possibleAmount * costPerUnit) 
+             })
+             console.log(`Refueled partial: +${possibleAmount} units`)
+          } else {
+              console.log('Not enough credits for fuel')
           }
       }
   },

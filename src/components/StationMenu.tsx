@@ -6,7 +6,7 @@ interface StationMenuProps {
 }
 
 export default function StationMenu({ onClose }: StationMenuProps) {
-  const { cargo, credits, fuel, maxFuel, sellResource, refuelShip } = useGameStore()
+  const { cargo, credits, fuel, maxFuel, sellResource, buyFuel } = useGameStore()
 
   // Ціни для візуалізації
   const prices: Record<ResourceType, number> = {
@@ -76,7 +76,7 @@ export default function StationMenu({ onClose }: StationMenuProps) {
                     <div className="flex justify-between items-center">
                         <div className="text-xs text-gray-500">Cost: 2 CR / Unit</div>
                         <button 
-                            onClick={refuelShip}
+                            onClick={buyFuel}
                             disabled={fuel >= maxFuel || credits < 2}
                             className="px-6 py-2 bg-neon-orange text-black font-bold font-mono rounded hover:bg-white transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                         >
