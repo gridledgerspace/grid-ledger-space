@@ -11,7 +11,7 @@ export interface SpaceObject {
   distance: number
   scanned: boolean
   
-  // Старі поля (для сумісності)
+  // Поля для сумісності з різними частинами коду
   resourceType?: ResourceType
   resourceAmount?: number
   enemyLevel?: number
@@ -22,7 +22,7 @@ export interface SpaceObject {
       module?: string
   }
 
-  // 👇 НОВЕ ПОЛЕ: воно потрібне для майнінгу, щоб знати скільки залишилось
+  // Поле для майнінгу
   data?: {
     resource: string
     amount: number
@@ -85,14 +85,14 @@ interface GameState {
   startWarp: () => void
   completeWarp: () => void
   
-  scanCurrentSector: () => void // Завантаження даних з БД
+  scanCurrentSector: () => void 
   
   scanSystem: () => void
   mineObject: (id: string) => void
   extractResource: () => void
   sellResource: (resource: string) => void
   
-  buyFuel: () => void // <--- ВИПРАВЛЕНО: Було refuelShip
+  buyFuel: () => void // Виправлена назва
   
   repairHull: () => void
   startCombat: (enemyId: string) => void
@@ -103,7 +103,7 @@ interface GameState {
   closeEvent: () => void
 }
 
-// Генератор випадкових чисел на основі сіда (для стабільної генерації)
+// Генератор випадкових чисел (stable random)
 const pseudoRandom = (seed: string) => {
     let hash = 0;
     for (let i = 0; i < seed.length; i++) {
@@ -177,11 +177,10 @@ export const useGameStore = create<GameState>((set, get) => ({
           currentEventId: null
       })
 
-      // Запускаємо завантаження даних з БД для нового сектору
       get().scanCurrentSector()
   },
 
-  // === 🔥 ГОЛОВНА ЛОГІКА ЗАВАНТАЖЕННЯ З БД ===
+  // === ЗАВАНТАЖЕННЯ СЕКТОРУ З БД ===
   scanCurrentSector: async () => {
     const { currentSector } = get()
     
@@ -237,11 +236,10 @@ export const useGameStore = create<GameState>((set, get) => ({
                 currentRes = { iron: newIron, gold: newGold, darkMatter: 0 }
             }
         }
-        // Оновлюємо глобальний стан ресурсів
         set({ sectorResources: currentRes })
     }
 
-    // 3. ГЕНЕРАЦІЯ ОБ'ЄКТІВ НА ОСНОВІ ДАНИХ З БД
+    // 3. ГЕНЕРАЦІЯ ОБ'ЄКТІВ
     const objects: SpaceObject[] = []
     const totalIron = currentRes.iron
     const totalGold = currentRes.gold
@@ -259,8 +257,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         return
     }
 
-    // Генеруємо астероїди з реальними ресурсами
-    const asteroidCount = Math.floor(Math.random() * 2) + 2 // 2-3 астероїди
+    // Генеруємо астероїди
+    const asteroidCount = Math.floor(Math.random() * 2) + 2 
     let remainingIron = totalIron
     let remainingGold = totalGold
 
@@ -283,14 +281,13 @@ export const useGameStore = create<GameState>((set, get) => ({
                 type: 'asteroid',
                 distance: 2500 + (i * 1000),
                 scanned: true,
-                // Заповнюємо обидва поля для сумісності
                 resourceType: resourceType as ResourceType, 
                 data: { resource: resourceType, amount: amount } 
             })
         }
     }
 
-    // Шанс на ворога (на основі псевдорандому сектора, щоб не зникав при перезаході)
+    // Шанс на ворога
     if (pseudoRandom(currentSector) > 0.7) {
         objects.push({ id: `enemy-${currentSector}`, type: 'enemy', distance: 3000, scanned: true, enemyLevel: 1 })
     }
@@ -298,7 +295,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ localObjects: objects })
   },
 
-  // === 🔥 ВИПРАВЛЕНИЙ ВИДОБУТОК ІЗ ЗАПИСОМ В БД ===
+  // === ВИДОБУТОК ===
   extractResource: async () => {
     const { localObjects, currentEventId, cargo, maxCargo, currentSector, sectorResources } = get()
     
@@ -311,15 +308,13 @@ export const useGameStore = create<GameState>((set, get) => ({
     const resourceType = target.data.resource 
     const amountAvailable = target.data.amount
 
-    // Перевірки
     const currentLoad = Object.values(cargo).reduce((a, b) => a + b, 0)
     if (currentLoad >= maxCargo) return 
     if (amountAvailable <= 0) return 
 
-    // Видобуваємо 10 одиниць
     const amountToMine = Math.min(10, amountAvailable, maxCargo - currentLoad)
 
-    // 1. Оновлюємо ЛОКАЛЬНИЙ об'єкт
+    // 1. Оновлюємо локально
     const updatedObjects = [...localObjects]
     updatedObjects[targetIndex] = {
         ...target,
@@ -330,11 +325,11 @@ export const useGameStore = create<GameState>((set, get) => ({
         updatedObjects[targetIndex].type = 'debris'
     }
 
-    // 2. Оновлюємо ВАНТАЖ
+    // 2. Оновлюємо вантаж
     const newCargo = { ...cargo }
     newCargo[resourceType] = (newCargo[resourceType] || 0) + amountToMine
 
-    // 3. Оновлюємо ГЛОБАЛЬНІ РЕСУРСИ в Store
+    // 3. Оновлюємо глобальні ресурси
     const newSectorResources = { ...sectorResources }
     if (resourceType === 'Iron') newSectorResources.iron -= amountToMine
     if (resourceType === 'Gold') newSectorResources.gold -= amountToMine
@@ -346,26 +341,17 @@ export const useGameStore = create<GameState>((set, get) => ({
         combatLog: [`> Extracted ${amountToMine}T of ${resourceType}`]
     })
 
-    // 4. 🔥 ЗАПИС В СУПАБЕЙС (Fix Bug #1)
+    // 4. Запис у БД
     const dbColumn = resourceType === 'Iron' ? 'iron_amount' : 'gold_amount'
     const newValue = resourceType === 'Iron' ? newSectorResources.iron : newSectorResources.gold
     
     const updateData: any = { [dbColumn]: newValue }
     
-    // Перевірка на повне виснаження
-    const isDepleted = (newSectorResources.iron + newSectorResources.gold) <= 0
-    if (isDepleted) {
+    if ((newSectorResources.iron + newSectorResources.gold) <= 0) {
         updateData.last_depleted_at = new Date().toISOString()
     }
 
-    console.log(`📡 SYNCING DB: ${dbColumn} = ${newValue}`) // Для відладки
-    
-    const { error } = await supabase
-        .from('sectors')
-        .update(updateData)
-        .eq('id', currentSector)
-    
-    if (error) console.error('Mining sync error:', error)
+    supabase.from('sectors').update(updateData).eq('id', currentSector).then()
   },
 
   scanSystem: () => {
@@ -397,35 +383,20 @@ export const useGameStore = create<GameState>((set, get) => ({
       })
   },
   
-  // === 🔥 ВИПРАВЛЕНО: Функція перейменована на buyFuel (Fix Bug #2) ===
+  // === ПАЛИВО ===
   buyFuel: () => {
       const { fuel, maxFuel, credits } = get()
-      
-      // Якщо бак повний - виходимо
-      if (fuel >= maxFuel) {
-          console.log('Fuel tank is full')
-          return 
-      }
+      if (fuel >= maxFuel) return 
       
       const missing = maxFuel - fuel
-      const costPerUnit = 2
-      const cost = missing * costPerUnit
+      const cost = missing * 2 // 2 кредити за одиницю
 
       if (credits >= cost) {
-          // Вистачає на повний бак
           set({ fuel: maxFuel, credits: credits - cost })
-          console.log(`Refueled full: -${cost} CR`)
       } else {
-          // Заливаємо на скільки вистачить грошей
-          const possibleAmount = Math.floor(credits / costPerUnit)
-          if (possibleAmount > 0) {
-             set({ 
-                 fuel: fuel + possibleAmount, 
-                 credits: credits - (possibleAmount * costPerUnit) 
-             })
-             console.log(`Refueled partial: +${possibleAmount} units`)
-          } else {
-              console.log('Not enough credits for fuel')
+          const possible = Math.floor(credits / 2)
+          if (possible > 0) {
+             set({ fuel: fuel + possible, credits: credits - (possible * 2) })
           }
       }
   },
@@ -515,7 +486,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       let msg = 'CONTAINER: '
       if (loot.credits) { newCredits += loot.credits; msg += `${loot.credits} CR. ` }
       if (loot.resource && loot.amount) { 
-          // newCargo[loot.resource] += loot.amount; 
           msg += `${loot.amount} ${loot.resource}.` 
       }
 
