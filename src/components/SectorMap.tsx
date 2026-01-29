@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { useGameStore } from '../store'
-import { Navigation, Crosshair, MapPin, Eye, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Ban } from 'lucide-react'
+import { Navigation, Crosshair, MapPin, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Ban, Eye } from 'lucide-react'
 
 export default function SectorMap() {
   const { 
     currentSector, 
-    visitedSectors, // <--- Важливий масив із бази
+    visitedSectors, 
     targetSector, 
     setTargetSector, 
     startWarp, 
@@ -13,10 +13,8 @@ export default function SectorMap() {
     status
   } = useGameStore((state: any) => state)
 
-  // Стан для центру перегляду карти (камера), незалежно від положення корабля
   const [viewCenter, setViewCenter] = useState(currentSector || '0:0')
 
-  // Локальна функція розрахунку палива
   const getFuelCost = (target: string) => {
       if (!currentSector || !target) return 0
       const [x1, y1] = currentSector.split(':').map(Number)
@@ -25,13 +23,11 @@ export default function SectorMap() {
       return Math.ceil(dist * 10)
   }
 
-  // Навігація по карті (зсув камери)
   const moveView = (dx: number, dy: number) => {
       const [cx, cy] = viewCenter.split(':').map(Number)
       setViewCenter(`${cx + dx}:${cy + dy}`)
   }
 
-  // Генеруємо сітку 5x5 навколо viewCenter
   const [cx, cy] = viewCenter.split(':').map(Number)
   const gridSize = 2
   const grid = []
@@ -43,63 +39,71 @@ export default function SectorMap() {
   }
 
   return (
-    <div className="absolute inset-0 z-40 bg-black/95 flex flex-col items-center justify-center animate-in fade-in duration-300">
+    // === ФОН: Радіальний градієнт для глибини ===
+    <div className="absolute inset-0 z-50 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-space-900 via-black to-black flex flex-col items-center justify-center animate-in fade-in duration-300 font-mono text-white">
       
-      {/* HEADER */}
-      <div className="absolute top-8 left-8 border-l-4 border-neon-cyan pl-4">
-        <h2 className="text-3xl font-mono text-neon-cyan font-bold flex items-center gap-3 tracking-widest">
-            <MapPin className="animate-bounce" /> TACTICAL MAP
-        </h2>
-        <p className="text-gray-500 font-mono text-sm mt-1">SECTOR VIEW: {viewCenter}</p>
+      {/* Декоративна фонова сітка (ледь помітна) */}
+      <div className="absolute inset-0 pointer-events-none opacity-10" 
+           style={{ backgroundImage: 'linear-gradient(#333 1px, transparent 1px), linear-gradient(90deg, #333 1px, transparent 1px)', backgroundSize: '40px 40px' }}>
       </div>
 
-      {/* STATUS PANEL (RIGHT) */}
-      <div className="absolute top-8 right-8 text-right bg-space-900/80 p-4 border border-white/10 rounded backdrop-blur-sm">
-        <div className="text-neon-orange font-bold font-mono text-2xl flex items-center justify-end gap-2">
-            FUEL: {fuel}% <span className="text-xs text-gray-500 bg-black px-1 rounded">MAX 100</span>
+      {/* HEADER */}
+      <div className="absolute top-8 left-8 border-l-4 border-neon-cyan pl-4 z-10">
+        <h2 className="text-3xl text-neon-cyan font-bold flex items-center gap-3 tracking-widest uppercase shadow-neon">
+            <MapPin className="animate-bounce" /> Tactical Map
+        </h2>
+        <p className="text-gray-500 text-sm mt-1">SECTOR VIEW: <span className="text-white">{viewCenter}</span></p>
+      </div>
+
+      {/* STATUS PANEL */}
+      <div className="absolute top-8 right-8 text-right bg-black/40 p-6 border border-white/10 rounded-xl backdrop-blur-md shadow-2xl z-10 min-w-[200px]">
+        <div className="text-neon-orange font-bold text-3xl flex items-center justify-end gap-2">
+            {fuel}% <span className="text-[10px] text-gray-500 font-normal uppercase mt-2">Fuel Level</span>
+        </div>
+        
+        {/* Progress Bar */}
+        <div className="w-full h-1.5 bg-gray-800 mt-2 rounded-full overflow-hidden">
+            <div className={`h-full transition-all duration-500 ${fuel < 30 ? 'bg-red-500' : 'bg-neon-orange'}`} style={{ width: `${fuel}%` }} />
         </div>
         
         {targetSector ? (
-             <div className="mt-2 text-right">
-                <div className="text-xs text-gray-400 font-mono">DESTINATION: <span className="text-white font-bold">{targetSector}</span></div>
-                <div className="text-xs font-mono mt-1">
-                    COST: <span className={fuel >= getFuelCost(targetSector) ? 'text-neon-cyan' : 'text-neon-red font-bold'}>
-                        {getFuelCost(targetSector)} UNITS
-                    </span>
+             <div className="mt-4 pt-4 border-t border-white/10 text-right">
+                <div className="text-[10px] text-gray-400 uppercase tracking-wider">Target System</div>
+                <div className="text-white font-bold text-lg">{targetSector}</div>
+                <div className={`text-xs mt-1 font-bold flex justify-end items-center gap-1 ${fuel >= getFuelCost(targetSector) ? 'text-neon-cyan' : 'text-red-500'}`}>
+                    JUMP COST: {getFuelCost(targetSector)}
                 </div>
             </div>
         ) : (
-            <div className="mt-2 text-xs text-gray-500 font-mono animate-pulse">
-                SELECT A SECTOR TO WARP
+            <div className="mt-4 pt-4 border-t border-white/10 text-xs text-gray-500 animate-pulse text-right">
+                AWAITING COORDINATES...
             </div>
         )}
       </div>
 
-      {/* === MAP CONTAINER === */}
-      <div className="relative p-12 bg-space-950/50 rounded-3xl border border-neon-cyan/20 shadow-[0_0_50px_rgba(0,0,0,0.8)]">
+      {/* === MAP INTERFACE === */}
+      <div className="relative z-10">
         
-        {/* Navigation Controls (Arrows) */}
-        <button onClick={() => moveView(0, -1)} className="absolute top-2 left-1/2 -translate-x-1/2 p-2 text-neon-cyan hover:text-white hover:bg-neon-cyan/20 rounded-full transition-all">
+        {/* CONTROLS AROUND GRID */}
+        <button onClick={() => moveView(0, -1)} className="absolute -top-12 left-1/2 -translate-x-1/2 p-2 text-neon-cyan hover:text-white hover:bg-neon-cyan/20 rounded-full transition-all">
             <ChevronUp size={32}/>
         </button>
-        <button onClick={() => moveView(0, 1)} className="absolute bottom-2 left-1/2 -translate-x-1/2 p-2 text-neon-cyan hover:text-white hover:bg-neon-cyan/20 rounded-full transition-all">
+        <button onClick={() => moveView(0, 1)} className="absolute -bottom-12 left-1/2 -translate-x-1/2 p-2 text-neon-cyan hover:text-white hover:bg-neon-cyan/20 rounded-full transition-all">
             <ChevronDown size={32}/>
         </button>
-        <button onClick={() => moveView(-1, 0)} className="absolute left-2 top-1/2 -translate-y-1/2 p-2 text-neon-cyan hover:text-white hover:bg-neon-cyan/20 rounded-full transition-all">
+        <button onClick={() => moveView(-1, 0)} className="absolute -left-16 top-1/2 -translate-y-1/2 p-2 text-neon-cyan hover:text-white hover:bg-neon-cyan/20 rounded-full transition-all">
             <ChevronLeft size={32}/>
         </button>
-        <button onClick={() => moveView(1, 0)} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-neon-cyan hover:text-white hover:bg-neon-cyan/20 rounded-full transition-all">
+        <button onClick={() => moveView(1, 0)} className="absolute -right-16 top-1/2 -translate-y-1/2 p-2 text-neon-cyan hover:text-white hover:bg-neon-cyan/20 rounded-full transition-all">
             <ChevronRight size={32}/>
         </button>
 
-        {/* GRID */}
-        <div className="grid grid-cols-5 gap-4 relative z-10">
+        {/* GRID CONTAINER */}
+        <div className="grid grid-cols-5 gap-3 p-5 bg-black/60 rounded-2xl border border-neon-cyan/30 shadow-[0_0_60px_rgba(0,240,255,0.1)] backdrop-blur-sm">
             {grid.map(sectorId => {
                 const isCurrent = sectorId === currentSector
                 const isTarget = sectorId === targetSector
-                
-                // Перевіряємо, чи відвідували ми цей сектор (або це 0:0, який завжди відкритий)
-                const isVisited = visitedSectors.includes(sectorId) || sectorId === '0:0'
+                const isVisited = visitedSectors.includes(sectorId) || sectorId === '0:0' || isCurrent
 
                 return (
                     <button 
@@ -107,58 +111,62 @@ export default function SectorMap() {
                         onClick={() => setTargetSector(sectorId)}
                         disabled={isCurrent}
                         className={`
-                            w-20 h-20 rounded-lg border-2 flex flex-col items-center justify-center relative transition-all duration-300
+                            w-20 h-20 rounded border flex flex-col items-center justify-center relative transition-all duration-200 group
                             ${isCurrent 
-                                ? 'bg-neon-cyan border-neon-cyan text-black shadow-[0_0_20px_rgba(0,240,255,0.6)] scale-110 z-20' 
+                                ? 'bg-neon-cyan border-neon-cyan text-black shadow-[0_0_20px_rgba(0,240,255,0.6)] z-20 scale-105' 
                                 : isTarget
-                                    ? 'bg-neon-orange/20 border-neon-orange text-neon-orange border-dashed animate-pulse z-10'
+                                    ? 'bg-neon-orange/10 border-neon-orange text-neon-orange border-dashed shadow-[0_0_15px_rgba(255,174,0,0.4)] z-10'
                                     : isVisited
-                                        ? 'bg-space-800/60 border-neon-cyan/30 text-neon-cyan/70 hover:bg-space-700 hover:border-neon-cyan hover:text-white'
-                                        : 'bg-black/40 border-white/5 text-transparent hover:border-white/20'
+                                        ? 'bg-space-800/40 border-white/10 text-gray-400 hover:border-neon-cyan/50 hover:bg-space-800 hover:text-white'
+                                        : 'bg-black/20 border-white/5 text-transparent hover:border-white/10'
                             }
                         `}
                     >
-                        {isCurrent && <span className="text-[10px] font-bold">YOU</span>}
+                        {/* Coordinates (Only if visited) */}
+                        <span className="text-[10px] font-mono font-bold tracking-widest">
+                            {isVisited ? sectorId : '?'}
+                        </span>
+
+                        {/* Current Label */}
+                        {isCurrent && (
+                            <span className="text-[9px] font-black mt-1 uppercase">YOU</span>
+                        )}
                         
-                        {/* Координати показуємо тільки якщо були там або це ми */}
-                        {(isVisited || isCurrent) ? (
-                            <span className={`font-mono text-xs ${isCurrent ? 'font-black' : ''}`}>{sectorId}</span>
-                        ) : (
-                            <span className="text-white/10 text-lg">?</span>
+                        {/* Target Marker */}
+                        {isTarget && !isCurrent && (
+                            <Crosshair size={16} className="mt-1 animate-spin-slow"/>
                         )}
 
-                        {isVisited && !isCurrent && (
-                            <div className="absolute top-1 right-1 opacity-50"><Eye size={8}/></div>
+                        {/* Visited Eye Icon (Subtle) */}
+                        {isVisited && !isCurrent && !isTarget && (
+                            <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-50 transition-opacity">
+                                <Eye size={10}/>
+                            </div>
                         )}
-                        
-                        {isTarget && !isCurrent && <Crosshair size={12} className="mt-1"/>}
                     </button>
                 )
             })}
         </div>
-
-        {/* Center Indicator (Decoration) */}
-        <div className="absolute inset-0 border border-white/5 rounded-3xl pointer-events-none"/>
       </div>
 
-      {/* CONTROLS FOOTER */}
-      <div className="absolute bottom-12 flex gap-4">
+      {/* FOOTER CONTROLS */}
+      <div className="absolute bottom-12 flex gap-6 z-10">
         <button 
             onClick={() => useGameStore.setState({ status: 'space' })}
-            className="px-8 py-3 border border-gray-600 text-gray-400 font-mono hover:bg-white/10 hover:text-white transition-all rounded clip-path-polygon uppercase tracking-wider text-sm"
+            className="px-8 py-3 border border-gray-600 text-gray-400 text-sm font-bold tracking-wider hover:bg-white/10 hover:text-white transition-all rounded uppercase"
         >
-            Return to Bridge
+            &lt; Return to Bridge
         </button>
 
         <button 
             disabled={!targetSector || fuel < getFuelCost(targetSector || '')}
             onClick={startWarp}
-            className="px-10 py-3 bg-neon-cyan text-black font-bold font-mono hover:bg-white hover:scale-105 transition-all rounded shadow-[0_0_20px_rgba(0,240,255,0.4)] disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none flex items-center gap-2 uppercase tracking-wider text-sm"
+            className="px-10 py-3 bg-neon-cyan text-black font-bold text-sm tracking-wider hover:bg-white hover:scale-105 transition-all rounded shadow-[0_0_20px_rgba(0,240,255,0.4)] disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none flex items-center gap-2 uppercase"
         >
             {targetSector && fuel < getFuelCost(targetSector) ? (
-                <><Ban size={16}/> INSUFFICIENT FUEL</>
+                <><Ban size={16}/> Low Fuel</>
             ) : (
-                <><Navigation size={16} className={targetSector ? 'animate-spin-slow' : ''} /> INITIATE WARP</>
+                <><Navigation size={16} className={targetSector ? 'animate-spin-slow' : ''} /> Initiate Warp</>
             )}
         </button>
       </div>
