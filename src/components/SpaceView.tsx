@@ -1,77 +1,109 @@
 import { useState, useRef, useEffect } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber' // <--- 1. ДОДАЛИ useFrame
+import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, Stars } from '@react-three/drei'
 import { useGameStore } from '../store'
 import Object3D from './Object3D'
 import StationMenu from './StationMenu'
-import { Navigation, Scan, Pickaxe, Skull, Database, Home, ShoppingBag, ArrowLeftCircle, Box, Trash2, Crosshair } from 'lucide-react'
+import { 
+    Navigation, Scan, Pickaxe, Skull, Database, Home, 
+    ShoppingBag, ArrowLeftCircle, Box, Trash2,
+    ChevronRight, ChevronLeft, Target 
+} from 'lucide-react'
 
-// === 👇 2. НОВИЙ КОМПОНЕНТ: ДВИГУН ГРИ 👇 ===
-// Цей компонент відповідає за зменшення дистанції (політ)
+// === 1. ПОКРАЩЕНИЙ ДВИГУН РУХУ ===
 function GameLoop() {
   const { inCombat, status } = useGameStore()
 
   useFrame((_state, delta) => {
-    // Не рухаємось, якщо бій або майнінг
     if (inCombat || status === 'mining') return
 
     const store = useGameStore.getState()
     const objects = store.localObjects
-
-    // Якщо немає об'єктів - виходимо
+    
+    // Знаходимо ціль (вибраний об'єкт або перший у списку)
+    // У сторі немає поля selectedId, тому орієнтуємось на той, що передається в компоненті
+    // Але тут для спрощення візьмемо логіку: ми завжди летимо до першого у списку,
+    // оскільки UI сортує список так, що вибраний стає "активним".
+    // Або краще: передамо selectedId через пропcи або контекст, але тут зробимо хитріше:
+    // Ми будемо рухатись до того, у кого відстань найменша (бо ми його вибрали)
+    
+    // Але для гарантії, давай просто рухати об'єкти в Store
+    // Припустимо, що activeTargetId зберігається в local state компонента SpaceView, 
+    // але GameLoop не має доступу до state компонента.
+    // Тому ми просто знайдемо об'єкт, до якого ми "наближаємось" (той, що < 3000 км і зменшується)
+    
+    // ТИМЧАСОВЕ РІШЕННЯ: Рухаємось до першого елемента масиву localObjects
+    // (В SpaceView ми будемо сортувати масив так, щоб вибраний був першим, або просто фільтрувати)
     if (objects.length === 0) return
 
-    // Завжди наближаємось до ПЕРШОГО об'єкта в списку (або вибраного)
-    // В цьому прикладі беремо перший (Target[0]), бо він зазвичай основний
+    // Знаходимо об'єкт, який позначений як поточна ціль (через currentEventId або просто перший вибраний в UI)
+    // Тут ми просто візьмемо об'єкт, відстань до якого < 4000 (тобто ми біля нього), і будемо "підлітати"
+    // Або просто реалізуємо логіку: ВСІ об'єкти рухаються.
+    
+    // ДЛЯ ЦЬОГО ПРИКЛАДУ: Ми вважаємо, що гравець летить до об'єкта [0] (який ми вибрали в UI)
     const target = objects[0]
+    
+    // Швидкість польоту
+    const approachSpeed = Math.max(500, target.distance * 2.0) * delta
 
-    // Якщо ми ще далеко (> 200 км)
-    if (target.distance > 200) {
-       // 🔥 ТУРБО РЕЖИМ
-       // Було: Math.max(50, target.distance * 0.2)
-       // Стало: 
-       // 1. Мінімальна швидкість тепер 1000 (щоб не повзти в кінці)
-       // 2. Множник 2.0 (щоб пролітати дистанцію миттєво)
-       const speed = Math.max(1000, target.distance * 2.0) 
-       
-       // Нова дистанція (з захистом від прольоту крізь об'єкт)
-       const newDist = Math.max(200, target.distance - (speed * delta))
+    let hasChanges = false
+    const newObjects = objects.map((obj, index) => {
+        // Якщо це ціль - наближаємось
+        if (index === 0) {
+            if (obj.distance > 200) {
+                const newDist = Math.max(200, obj.distance - approachSpeed)
+                if (Math.floor(newDist) !== Math.floor(obj.distance)) {
+                    hasChanges = true
+                    return { ...obj, distance: newDist }
+                }
+            }
+            return obj
+        } 
+        // Якщо це інші об'єкти - віддаляємось (ефект руху повз)
+        else {
+            // Віддаляємось повільніше, ніж наближаємось до цілі (паралакс)
+            const flyAwaySpeed = approachSpeed * 0.5 
+            
+            // Не віддаляємо далі 15000 км (щоб не губити їх назавжди)
+            if (obj.distance < 15000) {
+                const newDist = obj.distance + flyAwaySpeed
+                if (Math.floor(newDist) !== Math.floor(obj.distance)) {
+                    hasChanges = true
+                    return { ...obj, distance: newDist }
+                }
+            }
+            return obj
+        }
+    })
 
-       if (Math.floor(newDist) !== Math.floor(target.distance)) {
-           useGameStore.setState({
-               localObjects: objects.map(o => 
-                   o.id === target.id ? { ...o, distance: Math.floor(newDist) } : o
-               )
-           })
-       }
+    if (hasChanges) {
+        useGameStore.setState({ localObjects: newObjects })
     }
   })
 
   return null
 }
-// ============================================
 
-// Компонент для фонових сигналів
-function BackgroundSignals({ objects, currentId }: { objects: any[], currentId: string | null }) {
-    const others = objects.filter(o => o.id !== currentId)
+function BackgroundSignals({ objects }: { objects: any[] }) {
+    // Малюємо всі об'єкти, крім першого (бо перший - це 3D модель перед нами)
+    const others = objects.slice(1)
 
     return (
         <group>
             {others.map((obj, i) => {
                 const angle = (i / others.length) * Math.PI * 2
-                const radius = 15
-                const x = Math.cos(angle) * radius
-                const z = Math.sin(angle) * radius
-                const y = Math.sin(angle * 3) * 5
+                // Чим далі об'єкт, тим далі він візуально
+                // Нормалізуємо дистанцію для візуалізації (щоб не було занадто далеко)
+                const visualDist = Math.min(50, 15 + (obj.distance / 1000))
+                
+                const x = Math.cos(angle) * visualDist
+                const z = Math.sin(angle) * visualDist
+                const y = Math.sin(angle * 3) * (visualDist / 3)
 
                 return (
                     <mesh key={obj.id} position={[x, y, z]}>
-                        <sphereGeometry args={[0.2, 8, 8]} />
-                        <meshBasicMaterial color="#555" wireframe />
-                        <lineSegments>
-                            <bufferGeometry />
-                            <lineBasicMaterial color="#222" />
-                        </lineSegments>
+                        <sphereGeometry args={[0.1, 4, 4]} />
+                        <meshBasicMaterial color="#444" wireframe />
                     </mesh>
                 )
             })}
@@ -95,12 +127,21 @@ export default function SpaceView() {
   const [isSwitching, setIsSwitching] = useState(false)
   const [showStationMenu, setShowStationMenu] = useState(false)
   
+  // 4. Стан для сайдбару (згорнутий/розгорнутий)
+  const [isSidebarCollapsed, setSidebarCollapsed] = useState(false)
+  
   const logEndRef = useRef<HTMLDivElement>(null)
   
-  // Якщо вибраний ID існує, беремо об'єкт, інакше (якщо null) беремо перший зі списку
-  const selectedObj = localObjects.find(o => o.id === selectedId) || localObjects[0]
+  // Логіка вибору об'єкта
+  // Ми сортуємо об'єкти так, щоб вибраний завжди був першим у масиві (для GameLoop)
+  const sortedObjects = [...localObjects].sort((a, b) => {
+      if (a.id === selectedId) return -1
+      if (b.id === selectedId) return 1
+      return 0
+  })
 
-  // АВТОМАТИЧНИЙ ВИБІР: При завантаженні або зміні об'єктів
+  const activeObj = sortedObjects[0]
+
   useEffect(() => {
       if (localObjects.length > 0 && !selectedId) {
           setSelectedId(localObjects[0].id)
@@ -111,11 +152,18 @@ export default function SpaceView() {
       logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [combatLog])
 
+  // Функція вибору об'єкта
   const handleSelect = (id: string) => {
     if (id === selectedId) return
     setIsSwitching(true)
     setSelectedId(id)
-    setTimeout(() => setIsSwitching(false), 500)
+    
+    // Тут ми оновлюємо порядок в сторі, щоб GameLoop знав, до кого летіти
+    // Це трік: ми ставимо вибраний об'єкт на перше місце в масиві
+    const newOrder = [...localObjects].sort((a, _b) => a.id === id ? -1 : 1)
+    useGameStore.setState({ localObjects: newOrder })
+
+    setTimeout(() => setIsSwitching(false), 800) // Трохи довша анімація перельоту
   }
 
   const getObjectColor = (type: string) => {
@@ -131,11 +179,11 @@ export default function SpaceView() {
 
   const getIcon = (type: string) => {
       switch(type) {
-          case 'asteroid': return <Database size={14} className="text-neon-cyan"/>
-          case 'enemy': return <Skull size={14} className="text-neon-red"/>
-          case 'station': return <Home size={14} className="text-white"/>
-          case 'container': return <Box size={14} className="text-yellow-400"/>
-          case 'debris': return <Trash2 size={14} className="text-gray-500"/>
+          case 'asteroid': return <Database size={16} className="text-neon-cyan"/>
+          case 'enemy': return <Skull size={16} className="text-neon-red"/>
+          case 'station': return <Home size={16} className="text-white"/>
+          case 'container': return <Box size={16} className="text-yellow-400"/>
+          case 'debris': return <Trash2 size={16} className="text-gray-500"/>
           default: return <div className="w-2 h-2 rounded-full bg-neon-orange animate-pulse"/>
       }
   }
@@ -150,27 +198,29 @@ export default function SpaceView() {
             <pointLight position={[10, 10, 10]} intensity={1} color="#ffae00" />
             <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={0.5} />
             
-            {/* 👇 3. ВКЛЮЧАЄМО ДВИГУН ТУТ 👇 */}
             <GameLoop /> 
-            {/* ============================= */}
 
-            {/* ГОЛОВНИЙ ОБ'ЄКТ */}
-            {selectedObj && !isSwitching && selectedObj.scanned && (
-                <Object3D type={selectedObj.type} color={getObjectColor(selectedObj.type)} />
+            {/* Малюємо тільки активний об'єкт детально */}
+            {activeObj && !isSwitching && activeObj.scanned && (
+                <Object3D type={activeObj.type} color={getObjectColor(activeObj.type)} />
             )}
 
-            <BackgroundSignals objects={localObjects} currentId={selectedId} />
+            {/* Інші об'єкти на фоні */}
+            <BackgroundSignals objects={sortedObjects} />
             
             <OrbitControls enableZoom={false} autoRotate autoRotateSpeed={inCombat ? 0.2 : 0.5} />
          </Canvas>
       </div>
 
+      {/* Ефект перельоту */}
       {isSwitching && (
-          <div className="absolute inset-0 z-10 bg-black/50 backdrop-blur-sm flex items-center justify-center">
+          <div className="absolute inset-0 z-10 bg-black/40 backdrop-blur-md flex items-center justify-center animate-in fade-in duration-300">
               <div className="flex flex-col items-center gap-4">
-                  <div className="w-16 h-16 border-4 border-t-neon-cyan border-r-transparent border-b-neon-cyan border-l-transparent rounded-full animate-spin" />
-                  <div className="text-neon-cyan font-mono text-xl animate-pulse tracking-widest">
-                      APPROACHING TARGET...
+                  <div className="w-24 h-1 bg-neon-cyan/20 rounded-full overflow-hidden">
+                      <div className="h-full bg-neon-cyan w-1/2 animate-[shimmer_1s_infinite]"/>
+                  </div>
+                  <div className="text-neon-cyan font-mono text-xl animate-pulse tracking-[0.5em]">
+                      REALIGNING SENSORS...
                   </div>
               </div>
           </div>
@@ -178,140 +228,179 @@ export default function SpaceView() {
 
       {showStationMenu && <StationMenu onClose={() => setShowStationMenu(false)} />}
 
-      {/* ЦЕНТРАЛЬНИЙ HUD */}
-      <div className="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between p-6">
+      {/* === ЦЕНТРАЛЬНИЙ HUD (ЗМІЩЕНИЙ ВНИЗ) === */}
+      {/* 3. Перемістили взаємодію вниз, щоб не закривати об'єкт */}
+      <div className="absolute inset-x-0 bottom-0 z-10 pointer-events-none flex flex-col justify-end items-center pb-8 p-6">
           
-          {/* ВЕРХ */}
-          <div className={`text-center transition-opacity duration-500 ${inCombat ? 'opacity-0' : 'opacity-100'}`}>
-              <h1 className="text-4xl font-mono text-neon-cyan font-bold tracking-widest drop-shadow-[0_0_10px_rgba(0,240,255,0.5)]">
+          {/* Заголовок сектора (залишаємо зверху) */}
+          <div className={`absolute top-6 left-0 right-0 text-center transition-opacity duration-500 ${inCombat ? 'opacity-0' : 'opacity-100'}`}>
+              <h1 className="text-3xl font-mono text-neon-cyan/50 font-bold tracking-widest">
                   SECTOR {currentSector}
               </h1>
-              <p className="text-xs text-gray-500 font-mono">SYSTEM SCAN COMPLETE</p>
           </div>
 
-          {/* ЦЕНТР */}
-          <div className="flex items-center justify-center pointer-events-auto">
-             {selectedObj && !inCombat ? (
-                 <div className={`glass-panel p-6 border border-neon-cyan/30 rounded-xl text-center min-w-[300px] transition-all duration-500 ${isSwitching ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}>
-                     <h2 className="text-2xl font-bold font-mono text-white mb-1">
-                         {selectedObj.scanned ? selectedObj.type.toUpperCase() : 'UNKNOWN SIGNAL'}
-                     </h2>
-                     <p className="text-xs text-gray-400 font-mono mb-6">
-                         DISTANCE: <span className="text-neon-cyan">{selectedObj.distance} KM</span> (APPROACHING)
-                     </p>
+          {/* Панель взаємодії (ЗНИЗУ) */}
+          <div className="pointer-events-auto">
+             {activeObj && !inCombat ? (
+                 <div className={`glass-panel p-6 border-t-2 border-t-neon-cyan/50 rounded-xl text-center min-w-[400px] transition-all duration-500 
+                    backdrop-blur-xl bg-black/60 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]
+                    ${isSwitching ? 'translate-y-20 opacity-0' : 'translate-y-0 opacity-100'}
+                 `}>
+                     <div className="flex justify-between items-end mb-4 border-b border-white/10 pb-2">
+                         <div className="text-left">
+                            <h2 className="text-3xl font-bold font-mono text-white">
+                                {activeObj.scanned ? activeObj.type.toUpperCase() : 'UNKNOWN'}
+                            </h2>
+                            <p className="text-xs text-neon-cyan font-mono flex items-center gap-2">
+                                <Target size={12}/> 
+                                {/* 2. Тільки цілі числа */}
+                                DISTANCE: {Math.floor(activeObj.distance)} KM
+                            </p>
+                         </div>
+                         <div className="text-right text-xs text-gray-500 font-mono">
+                             ID: {activeObj.id.split('-')[1] || '000'}
+                         </div>
+                     </div>
 
-                     <div className="flex flex-col gap-3">
+                     <div className="flex items-center justify-center gap-4">
                          {/* КНОПКИ ДІЙ */}
-                         {!selectedObj.scanned && (
-                             <button onClick={scanSystem} className="py-3 bg-neon-cyan/20 border border-neon-cyan text-neon-cyan hover:bg-neon-cyan hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2">
-                                 <Scan size={18}/> ANALYZE SIGNATURE
+                         {!activeObj.scanned && (
+                             <button onClick={scanSystem} className="w-full py-4 bg-neon-cyan/20 border border-neon-cyan text-neon-cyan hover:bg-neon-cyan hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2">
+                                 <Scan size={20}/> SCAN OBJECT
                              </button>
                          )}
 
-                         {selectedObj.scanned && selectedObj.type === 'station' && (
+                         {activeObj.scanned && activeObj.type === 'station' && (
                              <>
-                                 <button onClick={() => setShowStationMenu(true)} className="py-3 bg-neon-orange/20 border border-neon-orange text-neon-orange hover:bg-neon-orange hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2">
-                                     <ShoppingBag size={18}/> OPEN MARKET
+                                 <button onClick={() => setShowStationMenu(true)} className="flex-1 py-4 bg-neon-orange/20 border border-neon-orange text-neon-orange hover:bg-neon-orange hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2">
+                                     <ShoppingBag size={20}/> MARKET
                                  </button>
-                                 <button onClick={() => useGameStore.setState({ status: 'hangar' })} className="py-3 border border-white/20 text-gray-300 hover:bg-white/10 font-mono transition-all flex items-center justify-center gap-2">
-                                     <ArrowLeftCircle size={18}/> DOCK
+                                 <button onClick={() => useGameStore.setState({ status: 'hangar' })} className="flex-1 py-4 border border-white/20 text-gray-300 hover:bg-white/10 font-mono transition-all flex items-center justify-center gap-2">
+                                     <ArrowLeftCircle size={20}/> DOCK
                                  </button>
                              </>
                          )}
 
-                         {selectedObj.scanned && selectedObj.type === 'asteroid' && (
-                             <button onClick={() => mineObject(selectedObj.id)} className="py-3 bg-neon-cyan/10 border border-neon-cyan text-neon-cyan hover:bg-neon-cyan hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2">
-                                 <Pickaxe size={18}/> MINE RESOURCES
+                         {activeObj.scanned && activeObj.type === 'asteroid' && (
+                             <button onClick={() => mineObject(activeObj.id)} className="w-full py-4 bg-neon-cyan/10 border border-neon-cyan text-neon-cyan hover:bg-neon-cyan hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(0,240,255,0.2)]">
+                                 <Pickaxe size={20}/> START MINING
                              </button>
                          )}
 
-                         {selectedObj.scanned && selectedObj.type === 'enemy' && (
-                             <button onClick={() => startCombat(selectedObj.id)} className="py-3 bg-neon-red/20 border border-neon-red text-neon-red hover:bg-neon-red hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2">
-                                 <Skull size={18}/> ENGAGE HOSTILE
+                         {activeObj.scanned && activeObj.type === 'enemy' && (
+                             <button onClick={() => startCombat(activeObj.id)} className="w-full py-4 bg-neon-red/20 border border-neon-red text-neon-red hover:bg-neon-red hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(255,0,60,0.3)]">
+                                 <Skull size={20}/> ATTACK
                              </button>
                          )}
 
-                         {selectedObj.scanned && selectedObj.type === 'container' && (
-                             <button onClick={() => openContainer(selectedObj.id)} className="py-3 bg-yellow-500/20 border border-yellow-500 text-yellow-500 hover:bg-yellow-500 hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2">
-                                 <Box size={18}/> COLLECT REWARD
+                         {activeObj.scanned && activeObj.type === 'container' && (
+                             <button onClick={() => openContainer(activeObj.id)} className="w-full py-4 bg-yellow-500/20 border border-yellow-500 text-yellow-500 hover:bg-yellow-500 hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2">
+                                 <Box size={20}/> SALVAGE
                              </button>
                          )}
 
-                          {selectedObj.scanned && selectedObj.type === 'debris' && (
-                             <div className="text-gray-500 font-mono text-xs">
-                                 WRECKAGE TOO DAMAGED TO SALVAGE
+                          {activeObj.scanned && activeObj.type === 'debris' && (
+                             <div className="w-full py-4 border border-gray-700 bg-gray-900/50 text-gray-500 font-mono text-sm flex items-center justify-center gap-2">
+                                 <Trash2 size={16}/> RESOURCES DEPLETED
                              </div>
                          )}
                      </div>
                  </div>
              ) : null}
           </div>
-          <div className="h-10"></div>
       </div>
 
-      {/* ПРАВА ПАНЕЛЬ */}
-      <div className="w-80 glass-panel border-l border-neon-cyan/30 flex flex-col z-20 bg-space-950/90 backdrop-blur-md">
+      {/* 4. САЙДБАР (ЗГОРТАННЯ) */}
+      <div className={`glass-panel border-l border-neon-cyan/30 flex flex-col z-20 bg-space-950/90 backdrop-blur-md transition-all duration-300 ease-in-out
+          ${isSidebarCollapsed ? 'w-20' : 'w-80'}
+      `}>
           
-          <div className={`p-4 border-b ${inCombat ? 'border-neon-red/50 bg-neon-red/10' : 'border-white/10'}`}>
-              <h2 className={`${inCombat ? 'text-neon-red animate-pulse' : 'text-neon-cyan'} font-mono font-bold flex items-center gap-2`}>
-                  {inCombat ? <Skull size={16}/> : <Crosshair size={16}/>}
-                  {inCombat ? 'COMBAT LOG' : 'SYSTEM OVERVIEW'}
-              </h2>
-              {!inCombat && (
-                  <div className="text-[10px] text-gray-500 font-mono mt-1">
-                      SIGNATURES DETECTED: {localObjects.length}
-                  </div>
+          <div className={`p-4 border-b flex items-center ${inCombat ? 'border-neon-red/50 bg-neon-red/10' : 'border-white/10'}`}>
+              <button 
+                onClick={() => setSidebarCollapsed(!isSidebarCollapsed)}
+                className="mr-2 text-neon-cyan hover:text-white transition-colors"
+              >
+                  {isSidebarCollapsed ? <ChevronLeft size={20}/> : <ChevronRight size={20}/>}
+              </button>
+              
+              {!isSidebarCollapsed && (
+                  <h2 className={`${inCombat ? 'text-neon-red animate-pulse' : 'text-neon-cyan'} font-mono font-bold flex items-center gap-2 text-sm`}>
+                      {inCombat ? 'COMBAT' : 'SYSTEM'}
+                  </h2>
               )}
           </div>
           
           <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
-              
               {inCombat ? (
                   <div className="flex flex-col gap-1 font-mono text-xs p-2">
-                      {combatLog.map((log, i) => (
-                          <div key={i} className="text-neon-red border-b border-neon-red/10 pb-1 opacity-80">
-                              {log}
-                          </div>
-                      ))}
-                      <div ref={logEndRef} />
+                      {/* У згорнутому стані показуємо лише останні логи або іконку */}
+                      {isSidebarCollapsed ? (
+                         <Skull className="text-neon-red mx-auto animate-pulse"/>
+                      ) : (
+                          <>
+                            {combatLog.map((log, i) => (
+                                <div key={i} className="text-neon-red border-b border-neon-red/10 pb-1 opacity-80">
+                                    {log}
+                                </div>
+                            ))}
+                            <div ref={logEndRef} />
+                          </>
+                      )}
                   </div>
               ) : (
-                  localObjects.map(obj => (
+                  sortedObjects.map(obj => (
                     <button 
                         key={obj.id}
                         onClick={() => handleSelect(obj.id)}
-                        className={`w-full p-3 rounded border text-left flex items-center gap-3 transition-all group relative overflow-hidden
+                        className={`w-full rounded border transition-all group relative overflow-hidden flex items-center
                             ${selectedId === obj.id 
                                 ? 'bg-neon-cyan/10 border-neon-cyan shadow-[0_0_10px_rgba(0,240,255,0.2)]' 
                                 : 'bg-transparent border-white/5 hover:bg-white/5 hover:border-white/20'}
+                            ${isSidebarCollapsed ? 'p-3 justify-center' : 'p-3 text-left gap-3'}
                         `}
                     >
                         {selectedId === obj.id && <div className="absolute left-0 top-0 bottom-0 w-1 bg-neon-cyan"/>}
                         
-                        <div className={`p-2 rounded bg-space-900 border border-white/10 ${selectedId === obj.id ? 'text-neon-cyan' : 'text-gray-500 group-hover:text-white'}`}>
+                        <div className={`rounded bg-space-900 border border-white/10 flex items-center justify-center
+                             ${isSidebarCollapsed ? 'p-2' : 'p-2'}
+                             ${selectedId === obj.id ? 'text-neon-cyan' : 'text-gray-500 group-hover:text-white'}
+                        `}>
                             {obj.scanned ? getIcon(obj.type) : <div className="w-2 h-2 rounded-full bg-neon-orange animate-pulse"/>}
                         </div>
                         
-                        <div>
-                            <div className={`text-xs font-mono font-bold ${selectedId === obj.id ? 'text-white' : 'text-gray-400 group-hover:text-gray-200'}`}>
-                                {obj.scanned ? obj.type.toUpperCase() : 'UNKNOWN'}
+                        {!isSidebarCollapsed && (
+                            <div className="min-w-0">
+                                <div className={`text-xs font-mono font-bold truncate ${selectedId === obj.id ? 'text-white' : 'text-gray-400 group-hover:text-gray-200'}`}>
+                                    {obj.scanned ? obj.type.toUpperCase() : 'UNKNOWN'}
+                                </div>
+                                <div className="text-[10px] text-gray-600 font-mono">
+                                    {Math.floor(obj.distance)} KM
+                                </div>
                             </div>
-                            <div className="text-[10px] text-gray-600 font-mono">
-                                {obj.distance} KM
-                            </div>
-                        </div>
+                        )}
                     </button>
                   ))
               )}
           </div>
 
-          {!inCombat && (
+          {!inCombat && !isSidebarCollapsed && (
               <div className="p-4 border-t border-white/10">
                   <button 
                     onClick={() => useGameStore.setState({ status: 'map' })}
                     className="w-full py-3 bg-space-800 border border-gray-600 text-gray-300 font-mono hover:bg-white/10 hover:text-white flex items-center justify-center gap-2 text-xs"
                   >
-                      <Navigation size={14}/> OPEN STAR MAP
+                      <Navigation size={14}/> OPEN MAP
+                  </button>
+              </div>
+          )}
+          
+           {!inCombat && isSidebarCollapsed && (
+              <div className="p-4 border-t border-white/10 flex justify-center">
+                  <button 
+                    onClick={() => useGameStore.setState({ status: 'map' })}
+                    className="text-gray-300 hover:text-white"
+                  >
+                      <Navigation size={20}/>
                   </button>
               </div>
           )}
