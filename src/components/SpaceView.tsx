@@ -232,12 +232,12 @@ export default function SpaceView() {
       {/* 3. Перемістили взаємодію вниз, щоб не закривати об'єкт */}
       <div className="absolute inset-x-0 bottom-0 z-10 pointer-events-none flex flex-col justify-end items-center pb-8 p-6">
           
-          {/* Заголовок сектора (залишаємо зверху) */}
-          <div className={`absolute top-6 left-0 right-0 text-center transition-opacity duration-500 ${inCombat ? 'opacity-0' : 'opacity-100'}`}>
-              <h1 className="text-3xl font-mono text-neon-cyan/50 font-bold tracking-widest">
-                  SECTOR {currentSector}
-              </h1>
-          </div>
+          {/* Заголовок сектора */}
+        <div className={`absolute top-0 left-0 right-0 z-10 pointer-events-none flex justify-center pt-6 transition-opacity duration-500 ${inCombat ? 'opacity-0' : 'opacity-100'}`}>
+            <h1 className="text-2xl font-mono text-neon-cyan/70 font-bold tracking-widest drop-shadow-[0_0_5px_rgba(0,240,255,0.3)] bg-black/30 px-6 py-2 rounded-full backdrop-blur-sm border border-white/5">
+                SECTOR {currentSector}
+            </h1>
+        </div>
 
           {/* Панель взаємодії (ЗНИЗУ) */}
           <div className="pointer-events-auto">
