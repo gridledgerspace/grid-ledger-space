@@ -45,6 +45,13 @@ export const calculateFuelCost = (current: string, target: string): number => {
     return Math.ceil(distance * 10)
 }
 
+export interface SectorDetail {
+    id: string
+    hasResources: boolean // Чи є там що копати?
+    isDepleted: boolean   // Чи воно на "відкаті" (3 години)?
+    lastUpdated: number   // Коли ми це перевіряли
+}
+
 interface GameState {
   status: 'hangar' | 'map' | 'warping' | 'space' | 'mining' | 'combat' | 'debris'
   currentSectorType: 'wild' | 'station'
@@ -62,6 +69,7 @@ interface GameState {
 
   visitedSectors: string[]
   // Глобальні ресурси сектору (синхронізуються з БД)
+  sectorDetails: Record<string, SectorDetail>
   sectorResources: {
     iron: number
     gold: number
@@ -101,6 +109,7 @@ interface GameState {
   endCombat: (win: boolean) => void
   openContainer: (id: string) => void
   closeEvent: () => void
+  fetchSectorGrid: (center: string) => Promise<void>
 }
 
 // Генератор випадкових чисел (stable random)
@@ -137,12 +146,67 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
   
   sectorStates: {}, 
+  sectorDetails: {},
 
   currentEventId: null,
   inCombat: false,
   enemyMaxHp: 100,
   enemyHp: 100,
   combatLog: [],
+
+  fetchSectorGrid: async (center: string) => {
+      if (!center) return
+
+      const [cx, cy] = center.split(':').map(Number)
+      const gridSize = 2 // Радіус (2 клітинки в кожен бік = 5x5)
+      const idsToFetch: string[] = []
+
+      // Генеруємо список координат (5x5), які треба перевірити
+      for (let y = cy - gridSize; y <= cy + gridSize; y++) {
+          for (let x = cx - gridSize; x <= cx + gridSize; x++) {
+              idsToFetch.push(`${x}:${y}`)
+          }
+      }
+
+      // Робимо один запит до Supabase для всіх цих секторів
+      const { data, error } = await supabase
+          .from('sectors')
+          .select('id, iron_amount, gold_amount, dark_matter_amount, last_depleted_at')
+          .in('id', idsToFetch)
+
+      if (error || !data) return
+
+      // Обробляємо отримані дані
+      const newDetails: Record<string, SectorDetail> = {}
+      const now = new Date().getTime()
+
+      data.forEach((row: any) => {
+          // Логіка: Чи на відновленні?
+          let isDepleted = false
+          if (row.last_depleted_at) {
+              const depTime = new Date(row.last_depleted_at).getTime()
+              if ((now - depTime) < 3 * 60 * 60 * 1000) {
+                  isDepleted = true // Ще не пройшло 3 години
+              }
+          }
+
+          // Логіка: Чи є ресурси?
+          const totalRes = (row.iron_amount || 0) + (row.gold_amount || 0) + (row.dark_matter_amount || 0)
+          const hasResources = totalRes > 0 && !isDepleted
+
+          newDetails[row.id] = {
+              id: row.id,
+              hasResources,
+              isDepleted,
+              lastUpdated: now
+          }
+      })
+
+      // Оновлюємо Store, зливаючи з існуючими даними
+      set(state => ({
+          sectorDetails: { ...state.sectorDetails, ...newDetails }
+      }))
+  },
 
   setTargetSector: (sector) => set({ targetSector: sector }),
 

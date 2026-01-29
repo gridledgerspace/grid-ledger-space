@@ -1,61 +1,54 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react' // <--- Додали useEffect
 import { useGameStore } from '../store'
-import { Navigation, Crosshair, MapPin, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Ban, Skull, Home, Gem, CircleDashed, } from 'lucide-react'
+import { Navigation, Crosshair, MapPin, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Ban, Home, Gem, CircleDashed, Loader2 } from 'lucide-react'
 
 export default function SectorMap() {
   const { 
     currentSector, 
     visitedSectors, 
-    scannedSectors, // <--- Додали пам'ять сканера
-    localObjects,   // <--- Додали локальні об'єкти (те що бачимо зараз)
     targetSector, 
     setTargetSector, 
     startWarp, 
     fuel,
+    fetchSectorGrid, // <--- Нова функція зі стору
+    sectorDetails    // <--- Дані з бази
   } = useGameStore((state: any) => state)
 
   const [viewCenter, setViewCenter] = useState(currentSector || '0:0')
+  const [isLoading, setIsLoading] = useState(false)
 
-  // === РОЗУМНИЙ ВИЗНАЧНИК КОНТЕНТУ ===
+  // 🔥 ЕФЕКТ: При відкритті або зміні центру карти завантажуємо дані з БД
+  useEffect(() => {
+      const loadData = async () => {
+          setIsLoading(true)
+          await fetchSectorGrid(viewCenter)
+          setIsLoading(false)
+      }
+      loadData()
+  }, [viewCenter]) // Спрацьовує кожного разу, коли змінюється центр
+
+  // === ЛОГІКА ВІДОБРАЖЕННЯ (ТЕПЕР ЧЕСНА) ===
   const getSectorContent = (id: string) => {
-      // 1. СТАНЦІЯ (Завжди)
+      // 1. СТАНЦІЯ
       if (id === '0:0') return { type: 'station', icon: <Home size={14}/>, color: 'text-white' }
 
-      // 2. ЯКЩО МИ ЗАРАЗ ТУТ: Дивимось на реальні об'єкти (Truth of Reality)
-      if (id === currentSector && localObjects.length > 0) {
-          const hasEnemy = localObjects.some((o: any) => o.type === 'enemy')
-          const hasResources = localObjects.some((o: any) => o.type === 'asteroid' && o.data && o.data.amount > 0)
-          const hasStation = localObjects.some((o: any) => o.type === 'station')
-          
-          if (hasStation) return { type: 'station', icon: <Home size={14}/>, color: 'text-white' }
-          if (hasEnemy) return { type: 'enemy', icon: <Skull size={14}/>, color: 'text-neon-red' }
-          if (hasResources) return { type: 'resources', icon: <Gem size={14}/>, color: 'text-neon-cyan' }
-          // Якщо тільки уламки
-          return { type: 'debris', icon: <CircleDashed size={14}/>, color: 'text-gray-600' }
+      // 2. ДАНІ З БАЗИ (Якщо завантажились)
+      const details = sectorDetails[id]
+      if (details) {
+          if (details.isDepleted) {
+              // Якщо сектор на відкаті
+              return { type: 'empty', icon: <CircleDashed size={14}/>, color: 'text-gray-700' }
+          }
+          if (details.hasResources) {
+              // Якщо є ресурси
+              return { type: 'resources', icon: <Gem size={14}/>, color: 'text-neon-cyan' }
+          }
+          // Якщо просто порожній (викопали, але ще не помітили як depleted, або просто 0)
+          return { type: 'empty', icon: <CircleDashed size={14}/>, color: 'text-gray-700' }
       }
 
-      // 3. ЯКЩО МИ СКАНУВАЛИ ЦЕЙ СЕКТОР РАНІШЕ (Memory)
-      if (scannedSectors && scannedSectors[id]) {
-          const info = scannedSectors[id]
-          if (info.hasStation) return { type: 'station', icon: <Home size={14}/>, color: 'text-white' }
-          if (info.hasEnemies) return { type: 'enemy', icon: <Skull size={14}/>, color: 'text-neon-red' }
-          if (info.resources && info.resources.length > 0) return { type: 'resources', icon: <Gem size={14}/>, color: 'text-neon-cyan' }
-      }
-
-      // 4. FALLBACK: ГЕНЕРАТОР (Якщо ми просто пролетіли і не зберегли деталі)
-      // Ми налаштуємо його так, щоб він частіше показував ресурси, ніж пустоту
-      let hash = 0;
-      for (let i = 0; i < id.length; i++) {
-          hash = ((hash << 5) - hash) + id.charCodeAt(i);
-          hash |= 0;
-      }
-      const seed = Math.abs(Math.sin(hash) * 10000) % 1;
-
-      // Налаштування шансів (схоже на гру):
-      if (seed > 0.85) return { type: 'enemy', icon: <Skull size={14}/>, color: 'text-neon-red' } // 15% Вороги
-      if (seed > 0.25) return { type: 'resources', icon: <Gem size={14}/>, color: 'text-neon-cyan' } // 60% Ресурси (Було > 0.4)
-      
-      return { type: 'debris', icon: <CircleDashed size={14}/>, color: 'text-gray-600' } // 25% Пусто
+      // 3. Fallback (поки вантажиться або помилка) - нічого не показуємо або спіннер
+      return { type: 'unknown', icon: null, color: 'text-gray-800' }
   }
 
   const getFuelCost = (target: string) => {
@@ -93,7 +86,10 @@ export default function SectorMap() {
         <h2 className="text-3xl text-neon-cyan font-bold flex items-center gap-3 tracking-widest uppercase shadow-neon">
             <MapPin className="animate-bounce" /> Tactical Map
         </h2>
-        <p className="text-gray-500 text-sm mt-1">SECTOR VIEW: <span className="text-white">{viewCenter}</span></p>
+        <div className="flex items-center gap-2 mt-1">
+             <p className="text-gray-500 text-sm">SECTOR: <span className="text-white">{viewCenter}</span></p>
+             {isLoading && <Loader2 size={12} className="animate-spin text-neon-cyan"/>}
+        </div>
       </div>
 
       {/* STATUS PANEL */}
@@ -101,7 +97,6 @@ export default function SectorMap() {
         <div className="text-neon-orange font-bold text-3xl flex items-center justify-end gap-2">
             {fuel}% <span className="text-[10px] text-gray-500 font-normal uppercase mt-2">Fuel Level</span>
         </div>
-        
         <div className="w-full h-1.5 bg-gray-800 mt-2 rounded-full overflow-hidden">
             <div className={`h-full transition-all duration-500 ${fuel < 30 ? 'bg-red-500' : 'bg-neon-orange'}`} style={{ width: `${fuel}%` }} />
         </div>
@@ -114,7 +109,9 @@ export default function SectorMap() {
                 {visitedSectors.includes(targetSector) || targetSector === '0:0' ? (
                     <div className="flex justify-end gap-2 my-2 text-xs items-center font-bold">
                          <span className={getSectorContent(targetSector).color}>
-                            {getSectorContent(targetSector).type.toUpperCase()}
+                            {getSectorContent(targetSector).type === 'empty' ? 'DEPLETED / EMPTY' : 
+                             getSectorContent(targetSector).type === 'resources' ? 'RICH MINERALS' : 
+                             getSectorContent(targetSector).type === 'station' ? 'TRADE HUB' : ''}
                          </span>
                          {getSectorContent(targetSector).icon}
                     </div>
@@ -131,22 +128,14 @@ export default function SectorMap() {
         )}
       </div>
 
-      {/* === MAP INTERFACE === */}
+      {/* === MAP === */}
       <div className="relative z-10 mt-10">
         
-        {/* Navigation Arrows */}
-        <button onClick={() => moveView(0, -1)} className="absolute -top-12 left-1/2 -translate-x-1/2 p-2 text-neon-cyan hover:text-white hover:bg-neon-cyan/20 rounded-full transition-all">
-            <ChevronUp size={32}/>
-        </button>
-        <button onClick={() => moveView(0, 1)} className="absolute -bottom-12 left-1/2 -translate-x-1/2 p-2 text-neon-cyan hover:text-white hover:bg-neon-cyan/20 rounded-full transition-all">
-            <ChevronDown size={32}/>
-        </button>
-        <button onClick={() => moveView(-1, 0)} className="absolute -left-16 top-1/2 -translate-y-1/2 p-2 text-neon-cyan hover:text-white hover:bg-neon-cyan/20 rounded-full transition-all">
-            <ChevronLeft size={32}/>
-        </button>
-        <button onClick={() => moveView(1, 0)} className="absolute -right-16 top-1/2 -translate-y-1/2 p-2 text-neon-cyan hover:text-white hover:bg-neon-cyan/20 rounded-full transition-all">
-            <ChevronRight size={32}/>
-        </button>
+        {/* Navigation */}
+        <button onClick={() => moveView(0, -1)} className="absolute -top-12 left-1/2 -translate-x-1/2 p-2 text-neon-cyan hover:text-white hover:bg-neon-cyan/20 rounded-full transition-all"><ChevronUp size={32}/></button>
+        <button onClick={() => moveView(0, 1)} className="absolute -bottom-12 left-1/2 -translate-x-1/2 p-2 text-neon-cyan hover:text-white hover:bg-neon-cyan/20 rounded-full transition-all"><ChevronDown size={32}/></button>
+        <button onClick={() => moveView(-1, 0)} className="absolute -left-16 top-1/2 -translate-y-1/2 p-2 text-neon-cyan hover:text-white hover:bg-neon-cyan/20 rounded-full transition-all"><ChevronLeft size={32}/></button>
+        <button onClick={() => moveView(1, 0)} className="absolute -right-16 top-1/2 -translate-y-1/2 p-2 text-neon-cyan hover:text-white hover:bg-neon-cyan/20 rounded-full transition-all"><ChevronRight size={32}/></button>
 
         {/* GRID */}
         <div className="grid grid-cols-5 gap-3 p-5 bg-black/80 rounded-2xl border border-neon-cyan/30 shadow-[0_0_60px_rgba(0,240,255,0.15)] backdrop-blur-sm">
@@ -174,9 +163,9 @@ export default function SectorMap() {
                             }
                         `}
                     >
-                        {/* Icon for Visited Sectors */}
-                        {isVisited && !isCurrent && (
-                            <div className={`mb-1 opacity-70 group-hover:opacity-100 transition-opacity ${content.color}`}>
+                        {/* ICON (Only if visited) */}
+                        {isVisited && !isCurrent && content.icon && (
+                            <div className={`mb-1 transition-opacity ${content.color}`}>
                                 {content.icon}
                             </div>
                         )}
@@ -185,25 +174,12 @@ export default function SectorMap() {
                             {isVisited ? sectorId : '?'}
                         </span>
 
-                        {isCurrent && (
-                            <span className="text-[9px] font-black mt-1 uppercase">YOU</span>
-                        )}
-                        
-                        {isTarget && !isCurrent && (
-                            <Crosshair size={16} className="absolute inset-0 m-auto animate-spin-slow opacity-50"/>
-                        )}
+                        {isCurrent && <span className="text-[9px] font-black mt-1 uppercase">YOU</span>}
+                        {isTarget && !isCurrent && <Crosshair size={16} className="absolute inset-0 m-auto animate-spin-slow opacity-50"/>}
                     </button>
                 )
             })}
         </div>
-        
-        {/* LEGEND (Для розуміння іконок) */}
-        <div className="flex justify-center gap-6 mt-6 text-[10px] text-gray-500 font-mono">
-             <div className="flex items-center gap-2"><Gem size={10} className="text-neon-cyan"/> RICH</div>
-             <div className="flex items-center gap-2"><Skull size={10} className="text-neon-red"/> THREAT</div>
-             <div className="flex items-center gap-2"><CircleDashed size={10} className="text-gray-600"/> EMPTY</div>
-        </div>
-
       </div>
 
       {/* FOOTER */}
@@ -227,7 +203,6 @@ export default function SectorMap() {
             )}
         </button>
       </div>
-
     </div>
   )
 }
