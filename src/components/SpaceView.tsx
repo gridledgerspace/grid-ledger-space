@@ -6,11 +6,12 @@ import Object3D from './Object3D'
 import StationMenu from './StationMenu'
 import { 
     Navigation, Scan, Pickaxe, Skull, Database, Home, 
-    ShoppingBag, ArrowLeftCircle, Box, Trash2,
+    ShoppingBag, ArrowLeftCircle, Box, Trash2, 
     ChevronRight, ChevronLeft, Target 
-} from 'lucide-react'
+} from 'lucide-react' 
+// 1. Прибрали Crosshair з імпортів
 
-// === 1. ПОКРАЩЕНИЙ ДВИГУН РУХУ ===
+// === ДВИГУН РУХУ ===
 function GameLoop() {
   const { inCombat, status } = useGameStore()
 
@@ -20,35 +21,14 @@ function GameLoop() {
     const store = useGameStore.getState()
     const objects = store.localObjects
     
-    // Знаходимо ціль (вибраний об'єкт або перший у списку)
-    // У сторі немає поля selectedId, тому орієнтуємось на той, що передається в компоненті
-    // Але тут для спрощення візьмемо логіку: ми завжди летимо до першого у списку,
-    // оскільки UI сортує список так, що вибраний стає "активним".
-    // Або краще: передамо selectedId через пропcи або контекст, але тут зробимо хитріше:
-    // Ми будемо рухатись до того, у кого відстань найменша (бо ми його вибрали)
-    
-    // Але для гарантії, давай просто рухати об'єкти в Store
-    // Припустимо, що activeTargetId зберігається в local state компонента SpaceView, 
-    // але GameLoop не має доступу до state компонента.
-    // Тому ми просто знайдемо об'єкт, до якого ми "наближаємось" (той, що < 3000 км і зменшується)
-    
-    // ТИМЧАСОВЕ РІШЕННЯ: Рухаємось до першого елемента масиву localObjects
-    // (В SpaceView ми будемо сортувати масив так, щоб вибраний був першим, або просто фільтрувати)
     if (objects.length === 0) return
 
-    // Знаходимо об'єкт, який позначений як поточна ціль (через currentEventId або просто перший вибраний в UI)
-    // Тут ми просто візьмемо об'єкт, відстань до якого < 4000 (тобто ми біля нього), і будемо "підлітати"
-    // Або просто реалізуємо логіку: ВСІ об'єкти рухаються.
-    
-    // ДЛЯ ЦЬОГО ПРИКЛАДУ: Ми вважаємо, що гравець летить до об'єкта [0] (який ми вибрали в UI)
     const target = objects[0]
     
-    // Швидкість польоту
     const approachSpeed = Math.max(500, target.distance * 2.0) * delta
 
     let hasChanges = false
     const newObjects = objects.map((obj, index) => {
-        // Якщо це ціль - наближаємось
         if (index === 0) {
             if (obj.distance > 200) {
                 const newDist = Math.max(200, obj.distance - approachSpeed)
@@ -59,12 +39,8 @@ function GameLoop() {
             }
             return obj
         } 
-        // Якщо це інші об'єкти - віддаляємось (ефект руху повз)
         else {
-            // Віддаляємось повільніше, ніж наближаємось до цілі (паралакс)
             const flyAwaySpeed = approachSpeed * 0.5 
-            
-            // Не віддаляємо далі 15000 км (щоб не губити їх назавжди)
             if (obj.distance < 15000) {
                 const newDist = obj.distance + flyAwaySpeed
                 if (Math.floor(newDist) !== Math.floor(obj.distance)) {
@@ -85,15 +61,12 @@ function GameLoop() {
 }
 
 function BackgroundSignals({ objects }: { objects: any[] }) {
-    // Малюємо всі об'єкти, крім першого (бо перший - це 3D модель перед нами)
     const others = objects.slice(1)
 
     return (
         <group>
             {others.map((obj, i) => {
                 const angle = (i / others.length) * Math.PI * 2
-                // Чим далі об'єкт, тим далі він візуально
-                // Нормалізуємо дистанцію для візуалізації (щоб не було занадто далеко)
                 const visualDist = Math.min(50, 15 + (obj.distance / 1000))
                 
                 const x = Math.cos(angle) * visualDist
@@ -126,17 +99,13 @@ export default function SpaceView() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [isSwitching, setIsSwitching] = useState(false)
   const [showStationMenu, setShowStationMenu] = useState(false)
-  
-  // 4. Стан для сайдбару (згорнутий/розгорнутий)
   const [isSidebarCollapsed, setSidebarCollapsed] = useState(false)
   
   const logEndRef = useRef<HTMLDivElement>(null)
   
-  // Логіка вибору об'єкта
-  // Ми сортуємо об'єкти так, щоб вибраний завжди був першим у масиві (для GameLoop)
-  const sortedObjects = [...localObjects].sort((a, b) => {
+  // 2. Виправили (a, b) на (a, _b) щоб TS не сварився
+  const sortedObjects = [...localObjects].sort((a, _b) => {
       if (a.id === selectedId) return -1
-      if (b.id === selectedId) return 1
       return 0
   })
 
@@ -152,18 +121,16 @@ export default function SpaceView() {
       logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [combatLog])
 
-  // Функція вибору об'єкта
   const handleSelect = (id: string) => {
     if (id === selectedId) return
     setIsSwitching(true)
     setSelectedId(id)
     
-    // Тут ми оновлюємо порядок в сторі, щоб GameLoop знав, до кого летіти
-    // Це трік: ми ставимо вибраний об'єкт на перше місце в масиві
+    // Тут теж виправили на _b
     const newOrder = [...localObjects].sort((a, _b) => a.id === id ? -1 : 1)
     useGameStore.setState({ localObjects: newOrder })
 
-    setTimeout(() => setIsSwitching(false), 800) // Трохи довша анімація перельоту
+    setTimeout(() => setIsSwitching(false), 800)
   }
 
   const getObjectColor = (type: string) => {
@@ -200,19 +167,16 @@ export default function SpaceView() {
             
             <GameLoop /> 
 
-            {/* Малюємо тільки активний об'єкт детально */}
             {activeObj && !isSwitching && activeObj.scanned && (
                 <Object3D type={activeObj.type} color={getObjectColor(activeObj.type)} />
             )}
 
-            {/* Інші об'єкти на фоні */}
             <BackgroundSignals objects={sortedObjects} />
             
             <OrbitControls enableZoom={false} autoRotate autoRotateSpeed={inCombat ? 0.2 : 0.5} />
          </Canvas>
       </div>
 
-      {/* Ефект перельоту */}
       {isSwitching && (
           <div className="absolute inset-0 z-10 bg-black/40 backdrop-blur-md flex items-center justify-center animate-in fade-in duration-300">
               <div className="flex flex-col items-center gap-4">
@@ -228,18 +192,16 @@ export default function SpaceView() {
 
       {showStationMenu && <StationMenu onClose={() => setShowStationMenu(false)} />}
 
-      {/* === ЦЕНТРАЛЬНИЙ HUD (ЗМІЩЕНИЙ ВНИЗ) === */}
-      {/* 3. Перемістили взаємодію вниз, щоб не закривати об'єкт */}
-      <div className="absolute inset-x-0 bottom-0 z-10 pointer-events-none flex flex-col justify-end items-center pb-8 p-6">
-          
-          {/* Заголовок сектора */}
-        <div className={`absolute top-0 left-0 right-0 z-10 pointer-events-none flex justify-center pt-6 transition-opacity duration-500 ${inCombat ? 'opacity-0' : 'opacity-100'}`}>
-            <h1 className="text-2xl font-mono text-neon-cyan/70 font-bold tracking-widest drop-shadow-[0_0_5px_rgba(0,240,255,0.3)] bg-black/30 px-6 py-2 rounded-full backdrop-blur-sm border border-white/5">
-                SECTOR {currentSector}
-            </h1>
-        </div>
+      {/* === 3. ЗАГОЛОВОК СЕКТОРУ (ТЕПЕР ОКРЕМО ЗВЕРХУ) === */}
+      <div className={`absolute top-0 left-0 right-0 z-10 pointer-events-none flex justify-center pt-6 transition-opacity duration-500 ${inCombat ? 'opacity-0' : 'opacity-100'}`}>
+           {/* Зменшив розмір тексту до text-2xl */}
+          <h1 className="text-2xl font-mono text-neon-cyan/70 font-bold tracking-widest drop-shadow-[0_0_5px_rgba(0,240,255,0.3)] bg-black/30 px-6 py-2 rounded-full backdrop-blur-sm border border-white/5">
+              SECTOR {currentSector}
+          </h1>
+      </div>
 
-          {/* Панель взаємодії (ЗНИЗУ) */}
+      {/* === 4. ПАНЕЛЬ ВЗАЄМОДІЇ (ТЕПЕР ОКРЕМО ЗНИЗУ) === */}
+      <div className="absolute inset-x-0 bottom-0 z-10 pointer-events-none flex flex-col justify-end items-center pb-8 p-6">
           <div className="pointer-events-auto">
              {activeObj && !inCombat ? (
                  <div className={`glass-panel p-6 border-t-2 border-t-neon-cyan/50 rounded-xl text-center min-w-[400px] transition-all duration-500 
@@ -253,7 +215,6 @@ export default function SpaceView() {
                             </h2>
                             <p className="text-xs text-neon-cyan font-mono flex items-center gap-2">
                                 <Target size={12}/> 
-                                {/* 2. Тільки цілі числа */}
                                 DISTANCE: {Math.floor(activeObj.distance)} KM
                             </p>
                          </div>
@@ -263,7 +224,6 @@ export default function SpaceView() {
                      </div>
 
                      <div className="flex items-center justify-center gap-4">
-                         {/* КНОПКИ ДІЙ */}
                          {!activeObj.scanned && (
                              <button onClick={scanSystem} className="w-full py-4 bg-neon-cyan/20 border border-neon-cyan text-neon-cyan hover:bg-neon-cyan hover:text-black font-mono font-bold transition-all flex items-center justify-center gap-2">
                                  <Scan size={20}/> SCAN OBJECT
@@ -310,11 +270,10 @@ export default function SpaceView() {
           </div>
       </div>
 
-      {/* 4. САЙДБАР (ЗГОРТАННЯ) */}
+      {/* САЙДБАР ЗЛІВА */}
       <div className={`glass-panel border-l border-neon-cyan/30 flex flex-col z-20 bg-space-950/90 backdrop-blur-md transition-all duration-300 ease-in-out
           ${isSidebarCollapsed ? 'w-20' : 'w-80'}
       `}>
-          
           <div className={`p-4 border-b flex items-center ${inCombat ? 'border-neon-red/50 bg-neon-red/10' : 'border-white/10'}`}>
               <button 
                 onClick={() => setSidebarCollapsed(!isSidebarCollapsed)}
@@ -333,7 +292,6 @@ export default function SpaceView() {
           <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
               {inCombat ? (
                   <div className="flex flex-col gap-1 font-mono text-xs p-2">
-                      {/* У згорнутому стані показуємо лише останні логи або іконку */}
                       {isSidebarCollapsed ? (
                          <Skull className="text-neon-red mx-auto animate-pulse"/>
                       ) : (
