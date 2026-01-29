@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { useGameStore } from '../store'
-import { Navigation, Crosshair, MapPin, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Ban, Skull, Home, Gem, CircleDashed } from 'lucide-react'
+import { Navigation, Crosshair, MapPin, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Ban, Skull, Home, Gem, CircleDashed, } from 'lucide-react'
 
 export default function SectorMap() {
   const { 
     currentSector, 
     visitedSectors, 
+    scannedSectors, // <--- Додали пам'ять сканера
+    localObjects,   // <--- Додали локальні об'єкти (те що бачимо зараз)
     targetSector, 
     setTargetSector, 
     startWarp, 
@@ -14,11 +16,34 @@ export default function SectorMap() {
 
   const [viewCenter, setViewCenter] = useState(currentSector || '0:0')
 
-  // === ГЕНЕРАТОР КОНТЕНТУ (Має співпадати з логікою генерації в store) ===
-  // Використовуємо псевдо-рандом, щоб карта завжди показувала те саме для конкретних координат
+  // === РОЗУМНИЙ ВИЗНАЧНИК КОНТЕНТУ ===
   const getSectorContent = (id: string) => {
+      // 1. СТАНЦІЯ (Завжди)
       if (id === '0:0') return { type: 'station', icon: <Home size={14}/>, color: 'text-white' }
 
+      // 2. ЯКЩО МИ ЗАРАЗ ТУТ: Дивимось на реальні об'єкти (Truth of Reality)
+      if (id === currentSector && localObjects.length > 0) {
+          const hasEnemy = localObjects.some((o: any) => o.type === 'enemy')
+          const hasResources = localObjects.some((o: any) => o.type === 'asteroid' && o.data && o.data.amount > 0)
+          const hasStation = localObjects.some((o: any) => o.type === 'station')
+          
+          if (hasStation) return { type: 'station', icon: <Home size={14}/>, color: 'text-white' }
+          if (hasEnemy) return { type: 'enemy', icon: <Skull size={14}/>, color: 'text-neon-red' }
+          if (hasResources) return { type: 'resources', icon: <Gem size={14}/>, color: 'text-neon-cyan' }
+          // Якщо тільки уламки
+          return { type: 'debris', icon: <CircleDashed size={14}/>, color: 'text-gray-600' }
+      }
+
+      // 3. ЯКЩО МИ СКАНУВАЛИ ЦЕЙ СЕКТОР РАНІШЕ (Memory)
+      if (scannedSectors && scannedSectors[id]) {
+          const info = scannedSectors[id]
+          if (info.hasStation) return { type: 'station', icon: <Home size={14}/>, color: 'text-white' }
+          if (info.hasEnemies) return { type: 'enemy', icon: <Skull size={14}/>, color: 'text-neon-red' }
+          if (info.resources && info.resources.length > 0) return { type: 'resources', icon: <Gem size={14}/>, color: 'text-neon-cyan' }
+      }
+
+      // 4. FALLBACK: ГЕНЕРАТОР (Якщо ми просто пролетіли і не зберегли деталі)
+      // Ми налаштуємо його так, щоб він частіше показував ресурси, ніж пустоту
       let hash = 0;
       for (let i = 0; i < id.length; i++) {
           hash = ((hash << 5) - hash) + id.charCodeAt(i);
@@ -26,9 +51,11 @@ export default function SectorMap() {
       }
       const seed = Math.abs(Math.sin(hash) * 10000) % 1;
 
-      if (seed > 0.8) return { type: 'enemy', icon: <Skull size={14}/>, color: 'text-neon-red' } // Небезпека
-      if (seed > 0.4) return { type: 'resources', icon: <Gem size={14}/>, color: 'text-neon-cyan' } // Ресурси
-      return { type: 'debris', icon: <CircleDashed size={14}/>, color: 'text-gray-600' } // Пусто/Сміття
+      // Налаштування шансів (схоже на гру):
+      if (seed > 0.85) return { type: 'enemy', icon: <Skull size={14}/>, color: 'text-neon-red' } // 15% Вороги
+      if (seed > 0.25) return { type: 'resources', icon: <Gem size={14}/>, color: 'text-neon-cyan' } // 60% Ресурси (Було > 0.4)
+      
+      return { type: 'debris', icon: <CircleDashed size={14}/>, color: 'text-gray-600' } // 25% Пусто
   }
 
   const getFuelCost = (target: string) => {
@@ -57,7 +84,6 @@ export default function SectorMap() {
   return (
     <div className="absolute inset-0 z-50 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-space-900 via-black to-black flex flex-col items-center justify-center animate-in fade-in duration-300 font-mono text-white">
       
-      {/* Background Grid */}
       <div className="absolute inset-0 pointer-events-none opacity-10" 
            style={{ backgroundImage: 'linear-gradient(#333 1px, transparent 1px), linear-gradient(90deg, #333 1px, transparent 1px)', backgroundSize: '40px 40px' }}>
       </div>
@@ -85,12 +111,12 @@ export default function SectorMap() {
                 <div className="text-[10px] text-gray-400 uppercase tracking-wider">Target System</div>
                 <div className="text-white font-bold text-lg">{targetSector}</div>
                 
-                {/* Info about target if visited */}
                 {visitedSectors.includes(targetSector) || targetSector === '0:0' ? (
-                    <div className="flex justify-end gap-2 my-2 text-xs">
+                    <div className="flex justify-end gap-2 my-2 text-xs items-center font-bold">
                          <span className={getSectorContent(targetSector).color}>
-                            {getSectorContent(targetSector).type.toUpperCase()} DETECTED
+                            {getSectorContent(targetSector).type.toUpperCase()}
                          </span>
+                         {getSectorContent(targetSector).icon}
                     </div>
                 ) : null}
 
@@ -108,7 +134,7 @@ export default function SectorMap() {
       {/* === MAP INTERFACE === */}
       <div className="relative z-10 mt-10">
         
-        {/* CONTROLS */}
+        {/* Navigation Arrows */}
         <button onClick={() => moveView(0, -1)} className="absolute -top-12 left-1/2 -translate-x-1/2 p-2 text-neon-cyan hover:text-white hover:bg-neon-cyan/20 rounded-full transition-all">
             <ChevronUp size={32}/>
         </button>
@@ -122,7 +148,7 @@ export default function SectorMap() {
             <ChevronRight size={32}/>
         </button>
 
-        {/* GRID CONTAINER */}
+        {/* GRID */}
         <div className="grid grid-cols-5 gap-3 p-5 bg-black/80 rounded-2xl border border-neon-cyan/30 shadow-[0_0_60px_rgba(0,240,255,0.15)] backdrop-blur-sm">
             {grid.map(sectorId => {
                 const isCurrent = sectorId === currentSector
@@ -148,36 +174,36 @@ export default function SectorMap() {
                             }
                         `}
                     >
-                        {/* CONTENT ICON (Only if visited) */}
+                        {/* Icon for Visited Sectors */}
                         {isVisited && !isCurrent && (
                             <div className={`mb-1 opacity-70 group-hover:opacity-100 transition-opacity ${content.color}`}>
                                 {content.icon}
                             </div>
                         )}
 
-                        {/* Coordinates */}
                         <span className={`text-[10px] font-mono tracking-widest ${isCurrent ? 'font-black' : 'text-gray-400'}`}>
                             {isVisited ? sectorId : '?'}
                         </span>
 
-                        {/* YOU Marker */}
                         {isCurrent && (
                             <span className="text-[9px] font-black mt-1 uppercase">YOU</span>
                         )}
                         
-                        {/* Target Marker */}
                         {isTarget && !isCurrent && (
                             <Crosshair size={16} className="absolute inset-0 m-auto animate-spin-slow opacity-50"/>
-                        )}
-
-                        {/* Subtle scanlines for visited sectors */}
-                        {isVisited && !isCurrent && (
-                            <div className="absolute inset-0 bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.2)_50%)] bg-[length:100%_4px] pointer-events-none opacity-20"/>
                         )}
                     </button>
                 )
             })}
         </div>
+        
+        {/* LEGEND (Для розуміння іконок) */}
+        <div className="flex justify-center gap-6 mt-6 text-[10px] text-gray-500 font-mono">
+             <div className="flex items-center gap-2"><Gem size={10} className="text-neon-cyan"/> RICH</div>
+             <div className="flex items-center gap-2"><Skull size={10} className="text-neon-red"/> THREAT</div>
+             <div className="flex items-center gap-2"><CircleDashed size={10} className="text-gray-600"/> EMPTY</div>
+        </div>
+
       </div>
 
       {/* FOOTER */}
