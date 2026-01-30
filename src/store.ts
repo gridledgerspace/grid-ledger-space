@@ -33,7 +33,6 @@ export interface SectorDetail {
 
 // === ДОПОМІЖНІ ФУНКЦІЇ ===
 
-// 1. Розрахунок відстані між секторами
 const getDistance = (s1: string, s2: string) => {
     const [x1, y1] = s1.split(':').map(Number)
     const [x2, y2] = s2.split(':').map(Number)
@@ -45,28 +44,27 @@ export const calculateFuelCost = (current: string, target: string): number => {
     return Math.ceil(getDistance(current, target) * 10)
 }
 
-// 2. Генератор контенту на основі відстані (ПРОГРЕСІЯ)
+// Генератор контенту на основі відстані
 const generateSectorContent = (sectorId: string) => {
     const dist = getDistance('0:0', sectorId)
     
-    // БАЗОВІ ЗНАЧЕННЯ
     let iron = 0, gold = 0, darkMatter = 0, enemies = 0
     let enemyLvl = 1
 
-    // === ЗОНА 1: БЕЗПЕЧНА (Радіус < 3) ===
+    // ЗОНА 1: БЕЗПЕЧНА (Радіус < 3)
     if (dist < 3) {
         iron = Math.floor(Math.random() * 300) + 100 
         gold = Math.random() > 0.8 ? Math.floor(Math.random() * 50) : 0 
         enemies = 0 
     } 
-    // === ЗОНА 2: ФРОНТИР (Радіус 3 - 7) ===
+    // ЗОНА 2: ФРОНТИР (Радіус 3 - 7)
     else if (dist < 8) {
         iron = Math.floor(Math.random() * 200) + 50
         gold = Math.floor(Math.random() * 150) + 50
         enemies = Math.random() > 0.5 ? Math.floor(Math.random() * 2) + 1 : 0 
         enemyLvl = 1
     }
-    // === ЗОНА 3: ГЛИБОКИЙ КОСМОС (Радіус 8+) ===
+    // ЗОНА 3: ГЛИБОКИЙ КОСМОС (Радіус 8+)
     else {
         iron = Math.floor(Math.random() * 100)
         gold = Math.floor(Math.random() * 300) + 100
@@ -109,13 +107,17 @@ interface GameState {
   enemyHp: number
   combatLog: string[]
 
+  // Actions
   setTargetSector: (sector: string) => void
   startWarp: () => void
   completeWarp: () => void
   scanCurrentSector: () => void 
   fetchSectorGrid: (center: string) => Promise<void>
   
+  // 👇 ЦІ ФУНКЦІЇ БУЛИ ВТРАЧЕНІ, ПОВЕРТАЄМО ЇХ
+  scanSystem: () => void
   mineObject: (id: string) => void
+  
   extractResource: () => void
   sellResource: (resource: string) => void
   buyFuel: () => void
@@ -183,6 +185,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       get().scanCurrentSector()
   },
 
+  // === ОСНОВНИЙ СКАНЕР (БД + ГЕНЕРАЦІЯ) ===
   scanCurrentSector: async () => {
     const { currentSector } = get()
     set({ inCombat: false, combatLog: [], currentEventId: null })
@@ -209,20 +212,17 @@ export const useGameStore = create<GameState>((set, get) => ({
     let enemyCount = 0
 
     if (sectorData) {
-        // Перевірка на регенерацію (3 години)
+        // Регенерація
         let isRegenerated = false
         if (sectorData.last_depleted_at) {
             const depTime = new Date(sectorData.last_depleted_at).getTime()
             const now = new Date().getTime()
-            if ((now - depTime) >= 3 * 60 * 60 * 1000) {
-                isRegenerated = true
-            }
+            if ((now - depTime) >= 3 * 60 * 60 * 1000) isRegenerated = true
         }
 
         if (isRegenerated) {
             console.log('♻️ SECTOR REGENERATED!')
             const gen = generateSectorContent(currentSector)
-            
             await supabase.from('sectors').update({
                 iron_amount: gen.iron,
                 gold_amount: gen.gold,
@@ -230,7 +230,6 @@ export const useGameStore = create<GameState>((set, get) => ({
                 enemy_count: gen.enemies,
                 last_depleted_at: null
             }).eq('id', currentSector)
-            
             currentRes = { iron: gen.iron, gold: gen.gold, darkMatter: gen.darkMatter }
             enemyCount = gen.enemies
         } else {
@@ -245,14 +244,12 @@ export const useGameStore = create<GameState>((set, get) => ({
         // Новий сектор
         console.log('✨ NEW SECTOR GENERATED')
         const gen = generateSectorContent(currentSector)
-        
         await supabase.from('sectors').update({
             iron_amount: gen.iron,
             gold_amount: gen.gold,
             dark_matter_amount: gen.darkMatter,
             enemy_count: gen.enemies
         }).eq('id', currentSector)
-
         currentRes = { iron: gen.iron, gold: gen.gold, darkMatter: gen.darkMatter }
         enemyCount = gen.enemies
     }
@@ -262,7 +259,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     // 3. СТВОРЕННЯ ОБ'ЄКТІВ
     const objects: SpaceObject[] = []
     
-    // А) ВОРОГИ
+    // Вороги
     for (let i = 0; i < enemyCount; i++) {
         objects.push({ 
             id: `enemy-${i}-${Date.now()}`, 
@@ -272,61 +269,52 @@ export const useGameStore = create<GameState>((set, get) => ({
             enemyLevel: 1 
         })
     }
-
     if (enemyCount > 0) {
         set({ inCombat: true, combatLog: [`> WARNING: ${enemyCount} HOSTILE SIGNATURES!`] })
     }
 
-    // Б) РЕСУРСИ (Паралельний спавн)
+    // Ресурси
     let asteroidIndex = 0
-
-    // Залізо
     if (currentRes.iron > 0) {
         const chunks = currentRes.iron > 300 ? 2 : 1
         const amountPerChunk = Math.floor(currentRes.iron / chunks)
-        
         for(let i=0; i<chunks; i++) {
              objects.push({
-                id: `ast-iron-${i}`,
-                type: 'asteroid',
-                distance: 3000 + (asteroidIndex * 800),
-                scanned: true,
-                data: { resource: 'Iron', amount: amountPerChunk }
+                id: `ast-iron-${i}`, type: 'asteroid', distance: 3000 + (asteroidIndex * 800),
+                scanned: true, data: { resource: 'Iron', amount: amountPerChunk }
             })
             asteroidIndex++
         }
     }
-
-    // Золото
     if (currentRes.gold > 0) {
          objects.push({
-            id: `ast-gold`,
-            type: 'asteroid',
-            distance: 3200 + (asteroidIndex * 800),
-            scanned: true,
-            data: { resource: 'Gold', amount: currentRes.gold }
+            id: `ast-gold`, type: 'asteroid', distance: 3200 + (asteroidIndex * 800),
+            scanned: true, data: { resource: 'Gold', amount: currentRes.gold }
         })
         asteroidIndex++
     }
-
-    // Темна матерія
     if (currentRes.darkMatter > 0) {
          objects.push({
-            id: `ast-dm`,
-            type: 'asteroid',
-            distance: 4000, 
-            scanned: true,
-            data: { resource: 'DarkMatter', amount: currentRes.darkMatter }
+            id: `ast-dm`, type: 'asteroid', distance: 4000, 
+            scanned: true, data: { resource: 'DarkMatter', amount: currentRes.darkMatter }
         })
     }
 
-    // В) СМІТТЯ
+    // Сміття
     if (objects.length === 0) {
          objects.push({ id: 'debris-1', type: 'debris', distance: 2000, scanned: true })
          objects.push({ id: 'debris-2', type: 'debris', distance: 3500, scanned: true })
     }
 
     set({ localObjects: objects })
+  },
+
+  // === 🔥 ПОВЕРНУЛИ ФУНКЦІЮ SCAN SYSTEM ===
+  scanSystem: () => {
+      const { localObjects } = get()
+      // Просто позначаємо все як scanned (хоча зараз ми і так все бачимо)
+      const updated = localObjects.map(o => ({ ...o, scanned: true }))
+      set({ localObjects: updated })
   },
 
   fetchSectorGrid: async (center: string) => {
@@ -372,9 +360,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       set(state => ({ sectorDetails: { ...state.sectorDetails, ...newDetails } }))
   },
 
-  // === 🔥 ОСЬ ФУНКЦІЯ, ЯКУ Я ПРОПУСТИВ МИНУЛОГО РАЗУ 🔥 ===
+  // === 🔥 ПОВЕРНУЛИ ФУНКЦІЮ MINEOBJECT ===
   mineObject: (id) => set({ status: 'mining', currentEventId: id }),
-  // ========================================================
 
   extractResource: async () => {
     const { localObjects, currentEventId, cargo, maxCargo, currentSector, sectorResources } = get()
@@ -394,7 +381,6 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     const amountToMine = Math.min(10, amountAvailable, maxCargo - currentLoad)
 
-    // 1. Оновлюємо локально
     const updatedObjects = [...localObjects]
     updatedObjects[targetIndex] = {
         ...target,
@@ -405,11 +391,9 @@ export const useGameStore = create<GameState>((set, get) => ({
         updatedObjects[targetIndex].type = 'debris'
     }
 
-    // 2. Вантаж
     const newCargo = { ...cargo }
     newCargo[resourceType] = (newCargo[resourceType] || 0) + amountToMine
 
-    // 3. Глобальні ресурси
     const newSectorResources = { ...sectorResources }
     if (resourceType === 'Iron') newSectorResources.iron -= amountToMine
     if (resourceType === 'Gold') newSectorResources.gold -= amountToMine
@@ -422,7 +406,6 @@ export const useGameStore = create<GameState>((set, get) => ({
         combatLog: [`> Extracted ${amountToMine}T of ${resourceType}`]
     })
 
-    // 4. Запис у БД
     const updateData: any = {}
     if (resourceType === 'Iron') updateData.iron_amount = newSectorResources.iron
     if (resourceType === 'Gold') updateData.gold_amount = newSectorResources.gold
