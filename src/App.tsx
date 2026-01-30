@@ -12,7 +12,7 @@ import StationMenu from './components/StationMenu'
 import { Shield, Zap, Crosshair, Hexagon, ShoppingBag, LogOut, Save, RotateCcw } from 'lucide-react'
 
 function App() {
-  const { status, credits, fuel, currentSector, hull } = useGameStore()
+  const { status, credits, fuel, currentSector } = useGameStore()
   const [showStation, setShowStation] = useState(false)
   const [session, setSession] = useState<any>(null)
   
@@ -30,25 +30,31 @@ function App() {
     // Первинна перевірка при запуску
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
-      if (session) loadUserData(session.user.id)
+      if (session) {
+        // 🔥 ДОДАЄМО ТУТ:
+        useGameStore.getState().setUserId(session.user.id) 
+        
+        loadUserData(session.user.id)
+      }
     })
 
     // Слухач подій (вхід, вихід, перемикання вкладок)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
       
+      if (session) {
+         // 🔥 І ТУТ ТАКОЖ:
+         useGameStore.getState().setUserId(session.user.id)
+      }
+
       // 👇 КРИТИЧНЕ ВИПРАВЛЕННЯ 👇
-      // Якщо дані ВЖЕ завантажені (ми граємо), то НЕ завантажуємо їх знову при зміні вкладки.
-      // Це запобігає відкату на старий сектор.
       if (session && !useGameStore.getState().currentSector) { 
-         // (Тут перевірка трохи хитра: ми вантажимо тільки якщо локальний сектор ще не встановлений або ми явно хочемо ресет)
-         // Найкращий варіант: просто покладаємось на isDataLoaded знизу в loadUserData
          if (!isDataLoaded) loadUserData(session.user.id)
       }
     })
 
     return () => subscription.unsubscribe()
-  }, []) // Порожній масив = запускається 1 раз
+  }, [])
 
   // === 2. ЗАВАНТАЖЕННЯ ПРОФІЛЮ ===
   const loadUserData = async (userId: string) => {
@@ -56,7 +62,7 @@ function App() {
     if (isDataLoaded) return 
 
     setLoadingData(true)
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
@@ -192,6 +198,7 @@ function App() {
       }, 1000)
       return () => clearTimeout(timer)
   }, [useGameStore((state) => state.cargo)])
+  
 
 
   // === 6. РЕНДЕР ===

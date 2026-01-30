@@ -7,7 +7,7 @@ import StationMenu from './StationMenu'
 import { 
     Navigation, Scan, Pickaxe, Skull, Database, Home, 
     ShoppingBag, ArrowLeftCircle, Box, Trash2, 
-    ChevronRight, ChevronLeft, Target, Menu, X, List
+    ChevronRight, ChevronLeft, Target, Menu, X, List, Rocket,
 } from 'lucide-react'
 
 // === ДВИГУН РУХУ ===
@@ -112,13 +112,14 @@ export default function SpaceView() {
     setTimeout(() => setIsSwitching(false), 800)
   }
 
-  const getObjectColor = (type: string) => {
+const getObjectColor = (type: string) => {
     switch (type) {
       case 'enemy': return '#ff003c'
       case 'asteroid': return '#00f0ff'
       case 'station': return '#ffffff'
       case 'container': return '#ffd700'
       case 'debris': return '#888888'
+      case 'player': return '#00ff00' // 🟢 Зелений колір для інших гравців
       default: return '#555555'
     }
   }
@@ -130,9 +131,14 @@ export default function SpaceView() {
           case 'station': return <Home size={16} className="text-white"/>
           case 'container': return <Box size={16} className="text-yellow-400"/>
           case 'debris': return <Trash2 size={16} className="text-gray-500"/>
+          
+          // 👇 Додаємо іконку гравця
+          case 'player': return <Rocket size={16} className="text-green-400"/>
+          
           default: return <div className="w-2 h-2 rounded-full bg-neon-orange animate-pulse"/>
       }
   }
+
 
   return (
     // h-[100dvh] для фіксації висоти на мобільних

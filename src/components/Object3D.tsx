@@ -1,65 +1,72 @@
-import { useRef, useEffect } from 'react'
+import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { Mesh } from 'three' //
+// 👇 ДОДАЛИ слово 'type'
+import type { EntityType } from '../store'
 
-interface Object3DProps {
-  type: 'asteroid' | 'enemy' | 'station' | 'empty' | 'debris' | 'container'
+interface Props {
+  type: EntityType 
   color: string
 }
 
-export default function Object3D({ type, color }: Object3DProps) {
-  const meshRef = useRef<Mesh>(null!)
-  
-  // Початкова позиція "глибоко" в екрані для ефекту прильоту
-  
-  useEffect(() => {
-      // При монтуванні (зміні типу) відкидаємо об'єкт назад
-      if (meshRef.current) {
-          meshRef.current.position.z = -50 // Далеко
-          meshRef.current.scale.set(0.1, 0.1, 0.1) // Маленький
+export default function Object3D({ type, color }: Props) {
+  const meshRef = useRef<any>(null)
+
+  useFrame((_state, delta) => {
+    if (meshRef.current) {
+      meshRef.current.rotation.y += delta * 0.2
+      if (type !== 'station' && type !== 'player') {
+          meshRef.current.rotation.x += delta * 0.1
       }
-  }, [type]) // Спрацьовує при зміні типу об'єкта
-
-  useFrame((_, delta) => {
-    if (!meshRef.current) return
-
-    // 1. Анімація обертання (постійна)
-    const speed = type === 'debris' ? 0.05 : 0.2
-    meshRef.current.rotation.y += delta * speed
-    meshRef.current.rotation.x += delta * (speed / 2)
-
-    // 2. ЕФЕКТ ЗБЛИЖЕННЯ (Lerp - лінійна інтерполяція)
-    // Плавно наближаємо позицію Z до 0
-    meshRef.current.position.z += (0 - meshRef.current.position.z) * delta * 5
-    
-    // Плавно збільшуємо масштаб до 1
-    meshRef.current.scale.x += (1 - meshRef.current.scale.x) * delta * 5
-    meshRef.current.scale.y += (1 - meshRef.current.scale.y) * delta * 5
-    meshRef.current.scale.z += (1 - meshRef.current.scale.z) * delta * 5
+    }
   })
 
-  const getGeometry = () => {
-    switch (type) {
-      case 'station': return <icosahedronGeometry args={[2.2, 0]} />
-      case 'enemy': return <octahedronGeometry args={[2, 0]} />
-      case 'asteroid': return <dodecahedronGeometry args={[2, 0]} />
-      case 'debris': return <tetrahedronGeometry args={[1.5, 0]} /> 
-      case 'container': return <boxGeometry args={[1.2, 1.2, 1.2]} />
-      default: return null
-    }
+  switch (type) {
+    case 'asteroid':
+      return (
+        <mesh ref={meshRef}>
+          <dodecahedronGeometry args={[1.2, 0]} />
+          <meshStandardMaterial color={color} wireframe />
+        </mesh>
+      )
+    
+    case 'enemy':
+      return (
+        <mesh ref={meshRef}>
+          <octahedronGeometry args={[1, 0]} />
+          <meshStandardMaterial color={color} wireframe />
+        </mesh>
+      )
+
+    case 'station':
+      return (
+        <mesh ref={meshRef}>
+          <boxGeometry args={[1.5, 1.5, 1.5]} />
+          <meshStandardMaterial color={color} wireframe />
+        </mesh>
+      )
+
+    case 'container':
+      return (
+        <mesh ref={meshRef}>
+          <boxGeometry args={[0.8, 0.8, 0.8]} />
+          <meshStandardMaterial color={color} wireframe />
+        </mesh>
+      )
+
+    case 'player':
+      return (
+        <mesh ref={meshRef} rotation={[0, 0, -Math.PI / 2]}>
+          <coneGeometry args={[0.5, 1.5, 4]} />
+          <meshStandardMaterial color={color} wireframe />
+        </mesh>
+      )
+
+    default:
+      return (
+        <mesh ref={meshRef}>
+          <tetrahedronGeometry args={[0.5, 0]} />
+          <meshStandardMaterial color={color} wireframe />
+        </mesh>
+      )
   }
-
-  if (type === 'empty') return null
-
-  return (
-    <mesh ref={meshRef}>
-      {getGeometry()}
-      <meshStandardMaterial 
-        color={color} 
-        wireframe={true}
-        emissive={color}
-        emissiveIntensity={0.5}
-      />
-    </mesh>
-  )
 }
