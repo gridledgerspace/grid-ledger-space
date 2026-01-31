@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useGameStore } from '../store'
-import { Navigation, Crosshair, MapPin, Skull, Home, Gem, CircleDashed, Loader2, LocateFixed, Rocket } from 'lucide-react'
+import { Navigation, Crosshair, MapPin, Loader2, LocateFixed, Rocket, Home, Skull, Gem, CircleDashed } from 'lucide-react'
 
 export default function SectorMap() {
   const { 
@@ -8,19 +8,20 @@ export default function SectorMap() {
     startWarp, fetchSectorGrid, sectorDetails, localObjects
   } = useGameStore((state: any) => state)
 
-  // Центр перегляду
   const [viewCenter, setViewCenter] = useState(currentSector || '0:0')
   const [isLoading, setIsLoading] = useState(false)
 
-  // === ДРАГ-Н-ДРОП ЛОГІКА ===
+  // === ДРАГ-Н-ДРОП ===
   const [isDragging, setIsDragging] = useState(false)
-  const dragStart = useRef({ x: 0, y: 0 })     // Де натиснули
-  const currentTranslate = useRef({ x: 0, y: 0 }) // Поточний зсув (візуальний)
-  const mapRef = useRef<HTMLDivElement>(null)  // Реф на контейнер сітки
-
-  // Розмір клітинки + відступ (w-20 = 80px, gap-2 = 8px -> ~88px)
-  // На мобільному менше: w-[18vw]
-  const CELL_SIZE = window.innerWidth < 768 ? window.innerWidth * 0.18 + 4 : 88 
+  const dragStart = useRef({ x: 0, y: 0 })
+  const mapRef = useRef<HTMLDivElement>(null)
+  
+  // 🔥 ВИПРАВЛЕННЯ РОЗМІРІВ 🔥
+  // Вираховуємо розмір клітинки в пікселях один раз.
+  // 18vw для мобільних, 80px для десктопу
+  const isMobile = window.innerWidth < 768
+  const CELL_SIZE = isMobile ? window.innerWidth * 0.18 : 80 
+  const GAP_SIZE = isMobile ? 4 : 8
 
   useEffect(() => {
       const loadData = async () => {
@@ -31,26 +32,17 @@ export default function SectorMap() {
       loadData()
   }, [viewCenter])
 
-  // --- ОБРОБНИКИ ПОДІЙ (TOUCH & MOUSE) ---
-
   const handlePointerDown = (e: React.PointerEvent) => {
     setIsDragging(true)
     dragStart.current = { x: e.clientX, y: e.clientY }
-    // Скидаємо поточний зсув
-    currentTranslate.current = { x: 0, y: 0 }
-    if (mapRef.current) {
-        mapRef.current.style.transition = 'none' // Прибираємо анімацію для миттєвої реакції
-    }
+    if (mapRef.current) mapRef.current.style.transition = 'none'
   }
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isDragging) return
-    
+    e.preventDefault() // Запобігає скролу сторінки на мобільних
     const dx = e.clientX - dragStart.current.x
     const dy = e.clientY - dragStart.current.y
-    currentTranslate.current = { x: dx, y: dy }
-
-    // Рухаємо сітку візуально
     if (mapRef.current) {
         mapRef.current.style.transform = `translate(${dx}px, ${dy}px)`
     }
@@ -66,17 +58,15 @@ export default function SectorMap() {
 
     if (mapRef.current) {
         mapRef.current.style.transition = 'transform 0.3s ease-out'
-        mapRef.current.style.transform = 'translate(0px, 0px)' // Повертаємо візуально в центр
+        mapRef.current.style.transform = 'translate(0px, 0px)'
     }
 
-    // Якщо рух був маленький (< 5px), вважаємо це кліком, а не драгом
-    // (Логіка кліку обробляється на кнопці, тут ми просто ігноруємо зміну центру)
     if (dist < 10) return 
 
-    // Рахуємо, на скільки клітинок ми змістилися
-    // Інвертуємо (тягнемо вправо -> бачимо ліві сектори)
-    const sectorsX = -Math.round(dx / CELL_SIZE)
-    const sectorsY = -Math.round(dy / CELL_SIZE)
+    // Враховуємо Gap при розрахунку зміщення
+    const totalCellSize = CELL_SIZE + GAP_SIZE
+    const sectorsX = -Math.round(dx / totalCellSize)
+    const sectorsY = -Math.round(dy / totalCellSize)
 
     if (sectorsX !== 0 || sectorsY !== 0) {
         const [cx, cy] = viewCenter.split(':').map(Number)
@@ -84,26 +74,18 @@ export default function SectorMap() {
     }
   }
 
-  // Центрування на гравці
-  const centerOnPlayer = () => {
-      setViewCenter(currentSector)
-  }
+  const centerOnPlayer = () => setViewCenter(currentSector)
 
-  // === ВІДОБРАЖЕННЯ КОНТЕНТУ ===
   const getSectorContent = (id: string) => {
       if (id === '0:0') return { type: 'station', icon: <Home size={14}/>, color: 'text-white' }
-      
-      // Якщо це поточний сектор - дивимось реальні дані
       if (id === currentSector && localObjects.length > 0) {
            const hasEnemy = localObjects.some((o: any) => o.type === 'enemy')
            const hasPlayer = localObjects.some((o: any) => o.type === 'player')
            const hasResources = localObjects.some((o: any) => o.type === 'asteroid' && o.data)
-           
-           if (hasPlayer) return { type: 'player', icon: <Rocket size={14}/>, color: 'text-green-400' } // Інший гравець
+           if (hasPlayer) return { type: 'player', icon: <Rocket size={14}/>, color: 'text-green-400' }
            if (hasEnemy) return { type: 'enemy', icon: <Skull size={14}/>, color: 'text-neon-red' }
            if (hasResources) return { type: 'resources', icon: <Gem size={14}/>, color: 'text-neon-cyan' }
       }
-
       const details = sectorDetails[id]
       if (details) {
           if (details.isDepleted) return { type: 'empty', icon: <CircleDashed size={14}/>, color: 'text-gray-700' }
@@ -121,12 +103,9 @@ export default function SectorMap() {
       return Math.ceil(dist * 10)
   }
 
-  // Генеруємо сітку. Збільшуємо радіус для більшого екрану
   const [cx, cy] = viewCenter.split(':').map(Number)
-  // Радіус 3 дає 7x7 = 49 секторів, що достатньо перекриває екран
   const gridSize = 3 
   const grid = []
-
   for (let y = cy - gridSize; y <= cy + gridSize; y++) {
     for (let x = cx - gridSize; x <= cx + gridSize; x++) {
       grid.push(`${x}:${y}`)
@@ -134,9 +113,8 @@ export default function SectorMap() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col font-mono text-white h-[100dvh] overflow-hidden select-none">
+    <div className="fixed inset-0 z-50 bg-black flex flex-col font-mono text-white h-[100dvh] overflow-hidden select-none touch-none">
       
-      {/* Background Effect */}
       <div className="absolute inset-0 z-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-space-900 via-black to-black opacity-80" />
       <div className="absolute inset-0 z-0 opacity-20" 
            style={{ backgroundImage: 'linear-gradient(#333 1px, transparent 1px), linear-gradient(90deg, #333 1px, transparent 1px)', backgroundSize: '40px 40px' }}>
@@ -144,7 +122,7 @@ export default function SectorMap() {
 
       {/* HEADER */}
       <div className="absolute top-0 left-0 w-full p-4 z-20 flex justify-between items-start pointer-events-none">
-        <div className="glass-panel px-4 py-2 border-l-4 border-l-neon-cyan pointer-events-auto">
+        <div className="glass-panel px-4 py-2 border-l-4 border-l-neon-cyan pointer-events-auto bg-black/60 backdrop-blur-md">
              <h2 className="text-xl md:text-2xl text-neon-cyan font-bold flex items-center gap-2 uppercase shadow-neon">
                  <MapPin className="w-5 h-5" /> Tactical Map
              </h2>
@@ -154,30 +132,23 @@ export default function SectorMap() {
              </div>
         </div>
 
-        {/* Center Button */}
-        <button 
-            onClick={centerOnPlayer}
-            className="glass-panel p-3 rounded-full border border-neon-cyan/30 text-neon-cyan hover:bg-neon-cyan hover:text-black transition-all pointer-events-auto shadow-lg active:scale-95"
-            title="Center on Ship"
-        >
+        <button onClick={centerOnPlayer} className="glass-panel p-3 rounded-full border border-neon-cyan/30 text-neon-cyan hover:bg-neon-cyan hover:text-black transition-all pointer-events-auto shadow-lg active:scale-95 bg-black/60">
             <LocateFixed size={24} />
         </button>
       </div>
 
-      {/* STATUS PANEL (Right) */}
+      {/* TARGET PANEL */}
       {targetSector && (
           <div className="absolute top-20 right-4 z-20 pointer-events-none animate-in slide-in-from-right">
-             <div className="glass-panel p-4 text-right border-r-4 border-r-neon-orange pointer-events-auto min-w-[140px]">
+             <div className="glass-panel p-4 text-right border-r-4 border-r-neon-orange pointer-events-auto min-w-[140px] bg-black/80 backdrop-blur-md">
                 <div className="text-[10px] text-gray-400 uppercase tracking-wider">Target</div>
                 <div className="text-white font-bold text-xl">{targetSector}</div>
-                
                 <div className="flex justify-end gap-2 my-1 items-center">
                     {getSectorContent(targetSector).icon}
                     <span className={`text-[10px] font-bold ${getSectorContent(targetSector).color}`}>
                         {getSectorContent(targetSector).type.toUpperCase()}
                     </span>
                 </div>
-
                 <div className="w-full h-px bg-white/10 my-2"></div>
                 <div className="text-[10px] text-gray-500">DISTANCE</div>
                 <div className="text-neon-cyan font-bold">{getFuelCost(targetSector)} KM</div>
@@ -185,21 +156,23 @@ export default function SectorMap() {
           </div>
       )}
 
-      {/* === MAP INTERFACE (DRAGGABLE AREA) === */}
+      {/* === DRAGGABLE MAP AREA === */}
       <div 
-        className="flex-1 relative z-10 overflow-hidden cursor-move flex items-center justify-center"
+        className="flex-1 relative z-10 overflow-hidden cursor-move flex items-center justify-center touch-none"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp} // Якщо курсор вилетів за екран
+        onPointerLeave={handlePointerUp}
       >
-        
-        {/* GRID CONTAINER */}
         <div 
             ref={mapRef}
-            className="grid gap-1 md:gap-2 p-10 transition-transform duration-75 ease-linear will-change-transform"
+            // 🔥 ВИПРАВЛЕННЯ: width: 'max-content' не дає сітці сплющуватись
+            className="grid transition-transform duration-75 ease-linear will-change-transform place-items-center"
             style={{ 
-                gridTemplateColumns: `repeat(${gridSize * 2 + 1}, minmax(0, 1fr))`
+                width: 'max-content', 
+                gap: `${GAP_SIZE}px`,
+                // 🔥 ВИПРАВЛЕННЯ: Жорстка ширина колонок
+                gridTemplateColumns: `repeat(${gridSize * 2 + 1}, ${CELL_SIZE}px)`
             }}
         >
             {grid.map(sectorId => {
@@ -211,12 +184,11 @@ export default function SectorMap() {
                 return (
                     <button 
                         key={sectorId}
-                        // Для кліку використовуємо onPointerUp логіку "мала дистанція", 
-                        // але для простоти можна залишити onClick, бо наш onPointerUp ігнорує малі рухи
                         onClick={() => !isDragging && setTargetSector(sectorId)}
                         disabled={isCurrent}
+                        // 🔥 ВИПРАВЛЕННЯ: Жорсткі розміри кнопки
+                        style={{ width: `${CELL_SIZE}px`, height: `${CELL_SIZE}px` }}
                         className={`
-                            w-[18vw] h-[18vw] md:w-20 md:h-20 max-w-[80px] max-h-[80px]
                             rounded border flex flex-col items-center justify-center relative transition-all duration-200 group overflow-hidden
                             ${isCurrent 
                                 ? 'bg-neon-cyan border-neon-cyan text-black shadow-neon z-20 scale-110' 
@@ -232,11 +204,9 @@ export default function SectorMap() {
                                 {content.icon}
                             </div>
                         )}
-
                         <span className={`text-[8px] md:text-[10px] font-mono mt-0.5 ${isCurrent ? 'font-black' : 'text-gray-500'}`}>
                             {isVisited ? sectorId : ''}
                         </span>
-
                         {isCurrent && <span className="text-[6px] md:text-[9px] font-black leading-none uppercase mt-1">YOU</span>}
                         {isTarget && !isCurrent && <Crosshair size={14} className="absolute inset-0 m-auto animate-spin-slow opacity-50"/>}
                     </button>
@@ -245,7 +215,7 @@ export default function SectorMap() {
         </div>
       </div>
 
-      {/* FOOTER ACTIONS */}
+      {/* FOOTER */}
       <div className="absolute bottom-6 w-full px-6 flex justify-center gap-4 z-20 pointer-events-none">
         <button 
             onClick={() => useGameStore.setState({ status: 'space' })}
