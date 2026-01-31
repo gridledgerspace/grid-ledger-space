@@ -19,7 +19,6 @@ function App() {
   const [isDataLoaded, setIsDataLoaded] = useState(false)
   const [loadingData, setLoadingData] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
-  const [ setLastSavedTime] = useState<string>('')
 
   const lastInitializedSector = useRef<string | null>(null) 
 
@@ -64,13 +63,12 @@ function App() {
     if (!session || !isDataLoaded) return
     setIsSaving(true)
     const state = useGameStore.getState()
-    const { error } = await supabase.from('profiles').update({
+    await supabase.from('profiles').update({
         credits: state.credits, hull: state.hull,
         current_sector: state.currentSector, cargo: state.cargo,
         visited_sectors: state.visitedSectors, updated_at: new Date()
       }).eq('id', session.user.id)
     setIsSaving(false)
-    if (!error) (new Date().toLocaleTimeString())
   }
 
   useEffect(() => {
@@ -125,45 +123,56 @@ function App() {
       {status === 'map' && <SectorMap />}
       {(status === 'space' || status === 'mining' || status === 'combat') && <SpaceView key={currentSector} />}
 
-      <div className="absolute top-16 right-4 z-50 flex flex-col items-end gap-2 pointer-events-none">
-          {isSaving && <div className="text-neon-cyan text-[10px] font-mono animate-pulse flex items-center gap-1 bg-black/50 px-2 py-1 rounded border border-neon-cyan/30"><RotateCcw size={10} className="animate-spin"/> SYNC</div>}
-      </div>
-
       {status === 'hangar' && (
         <>
           <HangarScene />
           
           <div className="absolute inset-0 z-10 flex flex-col pointer-events-none">
-            {/* HEADER */}
+            
+            {/* === 1. HEADER (Top Bar) === */}
             <div className="flex justify-between items-start p-4 bg-gradient-to-b from-black/90 to-transparent pointer-events-auto">
-              <div className="glass-panel px-4 py-2 border-l-4 border-l-neon-cyan rounded-r-lg bg-black/40 backdrop-blur-sm">
-                 <h2 className="text-neon-cyan font-mono text-lg md:text-xl font-bold tracking-widest leading-none">USS-NEMESIS</h2>
-                 <p className="text-[10px] text-gray-400 font-mono tracking-wider mt-1">SECTOR {currentSector}</p>
+              
+              {/* Left: Ship Name & Status */}
+              <div className="flex flex-col gap-2">
+                  <div className="glass-panel px-4 py-2 border-l-4 border-l-neon-cyan rounded-r-lg bg-black/40 backdrop-blur-sm">
+                    <h2 className="text-neon-cyan font-mono text-lg md:text-xl font-bold tracking-widest leading-none">USS-NEMESIS</h2>
+                    <p className="text-[10px] text-gray-400 font-mono tracking-wider mt-1">SECTOR {currentSector}</p>
+                  </div>
+                  {/* Sync Indicator (перемістили сюди, щоб не заважав кнопкам) */}
+                  {isSaving && <div className="text-neon-cyan text-[10px] font-mono animate-pulse flex items-center gap-1"><RotateCcw size={10} className="animate-spin"/> SYNCING...</div>}
               </div>
 
-              <div className="glass-panel px-4 py-2 border-r-4 border-r-neon-orange rounded-l-lg text-right bg-black/40 backdrop-blur-sm">
-                 <h2 className="text-neon-orange font-mono text-lg md:text-xl font-bold leading-none">{credits.toLocaleString()} CR</h2>
+              {/* Right: Credits & Action Buttons */}
+              <div className="flex flex-col items-end gap-2">
+                  {/* Credits */}
+                  <div className="glass-panel px-4 py-2 border-r-4 border-r-neon-orange rounded-l-lg text-right bg-black/40 backdrop-blur-sm">
+                    <h2 className="text-neon-orange font-mono text-lg md:text-xl font-bold leading-none">{credits.toLocaleString()} CR</h2>
+                  </div>
+
+                  {/* ACTION BUTTONS (Moved here!) */}
+                  <div className="flex gap-2">
+                      {currentSector === '0:0' && (
+                          <button onClick={() => setShowStation(true)} className="p-2 bg-neon-cyan/10 border border-neon-cyan/50 text-neon-cyan rounded hover:bg-neon-cyan hover:text-black transition-all" title="Station">
+                              <ShoppingBag size={18}/>
+                          </button>
+                      )}
+                      <button onClick={() => saveGame('Manual')} className="p-2 bg-green-500/10 border border-green-500/50 text-green-500 rounded hover:bg-green-500 hover:text-black transition-all" title="Save">
+                          <Save size={18}/>
+                      </button>
+                      <button onClick={() => supabase.auth.signOut()} className="p-2 bg-red-500/10 border border-red-500/50 text-red-500 rounded hover:bg-red-500 hover:text-black transition-all" title="Logout">
+                          <LogOut size={18}/>
+                      </button>
+                  </div>
               </div>
             </div>
 
+            {/* SPACER */}
             <div className="flex-1" />
 
-            {/* CONTROL DECK */}
-            <div className="bg-gradient-to-t from-black via-space-950/95 to-transparent p-4 pb-8 pointer-events-auto flex flex-col gap-4">
-               <div className="flex justify-center items-center gap-2 md:gap-4">
-                  {currentSector === '0:0' && (
-                      <button onClick={() => setShowStation(true)} className="flex items-center gap-2 px-4 py-2 bg-neon-cyan/10 border border-neon-cyan/50 text-neon-cyan text-xs font-bold rounded hover:bg-neon-cyan hover:text-black transition-all">
-                          <ShoppingBag size={14}/> <span className="hidden md:inline">STATION</span>
-                      </button>
-                  )}
-                  <button onClick={() => saveGame('Manual')} className="flex items-center gap-2 px-4 py-2 bg-green-500/10 border border-green-500/50 text-green-500 text-xs font-bold rounded hover:bg-green-500 hover:text-black transition-all">
-                      <Save size={14}/> <span className="hidden md:inline">SAVE</span>
-                  </button>
-                  <button onClick={() => supabase.auth.signOut()} className="flex items-center gap-2 px-4 py-2 bg-red-500/10 border border-red-500/50 text-red-500 text-xs font-bold rounded hover:bg-red-500 hover:text-black transition-all">
-                      <LogOut size={14}/> <span className="hidden md:inline">EXIT</span>
-                  </button>
-               </div>
-
+            {/* === 2. BOTTOM DECK (Fixed to bottom) === */}
+            <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-space-950/95 to-transparent p-4 pb-6 md:pb-8 pointer-events-auto flex flex-col gap-4">
+               
+               {/* Slots Grid */}
                <div className="grid grid-cols-4 gap-2 md:gap-4 max-w-xl mx-auto w-full">
                   <Slot icon={<Shield size={18} />} label="SHIELD" level="LVL 1" color="cyan" />
                   <Slot icon={<Zap size={18} />} label="ENGINE" level="LVL 1" color="cyan" />
@@ -171,14 +180,16 @@ function App() {
                   <Slot icon={<Hexagon size={18} />} label="CARGO" level="EMPTY" color="orange" />
                </div>
 
-               <div className="flex justify-center mt-2">
+               {/* Navigation Button (Fully visible now) */}
+               <div className="flex justify-center mt-1">
                  <button 
                     onClick={() => useGameStore.setState({ status: 'map' })} 
-                    className="w-full max-w-sm bg-neon-orange text-black py-3 md:py-4 font-mono font-bold text-sm md:text-lg rounded clip-path-polygon hover:bg-white transition-all shadow-[0_0_20px_rgba(255,174,0,0.4)] tracking-widest"
+                    className="w-full max-w-sm bg-neon-orange text-black py-4 font-mono font-bold text-lg rounded clip-path-polygon hover:bg-white transition-all shadow-[0_0_20px_rgba(255,174,0,0.4)] tracking-widest uppercase"
                  >
-                    OPEN STAR MAP
+                    Open Star Map
                  </button>
                </div>
+
             </div>
           </div>
         </>
@@ -187,6 +198,7 @@ function App() {
   )
 }
 
+// === КОМПАКТНИЙ СЛОТ ===
 function Slot({ icon, label, level, color }: any) {
   const borderColor = color === 'cyan' ? 'border-neon-cyan/30' : 'border-neon-orange/30';
   const textColor = color === 'cyan' ? 'text-neon-cyan' : 'text-neon-orange';

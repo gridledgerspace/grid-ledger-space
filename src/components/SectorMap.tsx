@@ -73,14 +73,7 @@ export default function SectorMap() {
       </div>
 
       {/* STATUS PANEL: Менші відступи та шрифти */}
-      <div className="absolute top-2 right-2 md:top-8 md:right-8 text-right bg-black/60 p-3 md:p-6 border border-white/10 rounded-xl backdrop-blur-md shadow-2xl z-10 min-w-[120px] md:min-w-[220px]">
-        <div className="text-neon-orange font-bold text-lg md:text-3xl flex items-center justify-end gap-2">
-            {fuel}% <span className="hidden md:inline text-[10px] text-gray-500 font-normal uppercase mt-2">Fuel Level</span>
-        </div>
-        <div className="w-full h-1 bg-gray-800 mt-1 md:mt-2 rounded-full overflow-hidden">
-            <div className={`h-full transition-all duration-500 ${fuel < 30 ? 'bg-red-500' : 'bg-neon-orange'}`} style={{ width: `${fuel}%` }} />
-        </div>
-        
+      <div className="absolute top-2 right-2 md:top-8 md:right-8 text-right bg-black/60 p-3 md:p-6 border border-white/10 rounded-xl backdrop-blur-md shadow-2xl z-10 min-w-[120px] md:min-w-[220px]"> 
         {targetSector && (
              <div className="mt-2 pt-2 border-t border-white/10 text-right">
                 <div className="hidden md:block text-[10px] text-gray-400 uppercase tracking-wider">Target</div>
