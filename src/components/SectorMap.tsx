@@ -11,15 +11,19 @@ export default function SectorMap() {
   const [viewCenter, setViewCenter] = useState(currentSector || '0:0')
   const [isLoading, setIsLoading] = useState(false)
 
-  // === ДРАГ-Н-ДРОП ===
+  // === СТАНИ ДЛЯ ПЛАВНОГО РУХУ ===
   const [isDragging, setIsDragging] = useState(false)
+  
+  // Зберігаємо поточний зсув (remainder), щоб карта не стрибала
+  const offset = useRef({ x: 0, y: 0 }) 
   const dragStart = useRef({ x: 0, y: 0 })
   const mapRef = useRef<HTMLDivElement>(null)
   
-  // Розміри (фіксовані для стабільності)
+  // Розміри
   const isMobile = window.innerWidth < 768
   const CELL_SIZE = isMobile ? window.innerWidth * 0.18 : 80 
   const GAP_SIZE = isMobile ? 4 : 8
+  const TOTAL_CELL_SIZE = CELL_SIZE + GAP_SIZE
 
   useEffect(() => {
       const loadData = async () => {
@@ -30,10 +34,17 @@ export default function SectorMap() {
       loadData()
   }, [viewCenter])
 
+  // Функція для застосування трансформації без ре-рендерів React
+  const applyTransform = (x: number, y: number) => {
+      if (mapRef.current) {
+          mapRef.current.style.transform = `translate3d(${x}px, ${y}px, 0)`
+      }
+  }
+
   const handlePointerDown = (e: React.PointerEvent) => {
     setIsDragging(true)
     dragStart.current = { x: e.clientX, y: e.clientY }
-    // Жодних анімацій, тільки прямий контроль
+    // Жодних анімацій, повний контроль
     if (mapRef.current) mapRef.current.style.transition = 'none'
   }
 
@@ -41,13 +52,12 @@ export default function SectorMap() {
     if (!isDragging) return
     e.preventDefault() 
     
+    // Скільки просунули зараз
     const dx = e.clientX - dragStart.current.x
     const dy = e.clientY - dragStart.current.y
     
-    // Рухаємо карту за пальцем
-    if (mapRef.current) {
-        mapRef.current.style.transform = `translate(${dx}px, ${dy}px)`
-    }
+    // Додаємо до накопиченого зсуву
+    applyTransform(offset.current.x + dx, offset.current.y + dy)
   }
 
   const handlePointerUp = (e: React.PointerEvent) => {
@@ -56,29 +66,47 @@ export default function SectorMap() {
 
     const dx = e.clientX - dragStart.current.x
     const dy = e.clientY - dragStart.current.y
-    const dist = Math.sqrt(dx * dx + dy * dy)
+    
+    // Оновлюємо глобальний офсет
+    const currentTotalX = offset.current.x + dx
+    const currentTotalY = offset.current.y + dy
 
-    // 1. Миттєво скидаємо візуальний зсув (бо зараз React перемалює сітку з новим центром)
-    if (mapRef.current) {
-        mapRef.current.style.transition = 'none' // Гарантуємо відсутність анімації
-        mapRef.current.style.transform = 'translate(0px, 0px)'
-    }
+    // Рахуємо, на скільки ПОВНИХ клітинок ми змістилися
+    // (Інвертуємо, бо тягнемо вправо -> йдемо вліво по координатах)
+    const sectorsX = -Math.round(currentTotalX / TOTAL_CELL_SIZE)
+    const sectorsY = -Math.round(currentTotalY / TOTAL_CELL_SIZE)
 
-    if (dist < 10) return 
-
-    // 2. Рахуємо нові координати
-    const totalCellSize = CELL_SIZE + GAP_SIZE
-    const sectorsX = -Math.round(dx / totalCellSize)
-    const sectorsY = -Math.round(dy / totalCellSize)
-
-    // 3. Якщо зміщення достатнє - оновлюємо центр (React миттєво перемалює сітку)
     if (sectorsX !== 0 || sectorsY !== 0) {
+        // 1. Оновлюємо логічний центр
         const [cx, cy] = viewCenter.split(':').map(Number)
         setViewCenter(`${cx + sectorsX}:${cy + sectorsY}`)
+
+        // 2. 🔥 КОМПЕНСАЦІЯ 🔥
+        // Оскільки React змістить сітку (бо змінився центр), ми повинні
+        // змінити наш офсет у протилежний бік, щоб візуально карта залишилась на місці.
+        offset.current.x = currentTotalX + (sectorsX * TOTAL_CELL_SIZE)
+        offset.current.y = currentTotalY + (sectorsY * TOTAL_CELL_SIZE)
+    } else {
+        // Якщо не перестрибнули в нову клітинку, просто зберігаємо поточний зсув
+        offset.current.x = currentTotalX
+        offset.current.y = currentTotalY
+    }
+
+    // Застосовуємо фінальний (компенсований) зсув
+    applyTransform(offset.current.x, offset.current.y)
+
+    // Логіка кліку (якщо майже не рухали)
+    const dist = Math.sqrt(dx * dx + dy * dy)
+    if (dist < 5) {
+        // Тут можна обробити клік, якщо треба
     }
   }
 
-  const centerOnPlayer = () => setViewCenter(currentSector)
+  const centerOnPlayer = () => {
+      setViewCenter(currentSector)
+      offset.current = { x: 0, y: 0 } // Скидаємо зсув
+      applyTransform(0, 0)
+  }
 
   // === ЛОГІКА ВІДОБРАЖЕННЯ ===
   const getSectorContent = (id: string) => {
@@ -109,7 +137,8 @@ export default function SectorMap() {
   }
 
   const [cx, cy] = viewCenter.split(':').map(Number)
-  const gridSize = 3 
+  // Збільшили грід, щоб при перетягуванні не було видно країв
+  const gridSize = 4 
   const grid = []
   for (let y = cy - gridSize; y <= cy + gridSize; y++) {
     for (let x = cx - gridSize; x <= cx + gridSize; x++) {
@@ -171,9 +200,10 @@ export default function SectorMap() {
       >
         <div 
             ref={mapRef}
-            // 🔥 ВАЖЛИВО: Ніяких transition/will-change, які можуть викликати ривки
-            className="grid place-items-center" 
+            className="grid place-items-center will-change-transform" 
             style={{ 
+                // Важливо: translate3d для апаратного прискорення
+                transform: `translate3d(${offset.current.x}px, ${offset.current.y}px, 0)`,
                 width: 'max-content', 
                 gap: `${GAP_SIZE}px`,
                 gridTemplateColumns: `repeat(${gridSize * 2 + 1}, ${CELL_SIZE}px)`
