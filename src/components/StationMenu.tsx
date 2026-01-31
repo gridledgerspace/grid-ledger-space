@@ -1,12 +1,12 @@
 import { useGameStore, type ResourceType } from '../store'
-import { XCircle, Fuel, Coins, ShoppingBag } from 'lucide-react'
+import { XCircle, ShoppingBag } from 'lucide-react'
 
 interface StationMenuProps {
   onClose: () => void
 }
 
 export default function StationMenu({ onClose }: StationMenuProps) {
-  const { cargo, credits, fuel, maxFuel, sellResource, buyFuel } = useGameStore()
+  const { cargo, credits,  sellResource,} = useGameStore()
 
   // Ціни для візуалізації
   const prices: Record<ResourceType, number> = {
@@ -14,8 +14,6 @@ export default function StationMenu({ onClose }: StationMenuProps) {
     'Gold': 50,
     'DarkMatter': 150
   }
-
-  const fuelCost = (maxFuel - fuel) * 2 // 2 кредити за одиницю
 
   return (
     <div className="absolute inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center animate-in fade-in duration-300">
@@ -61,30 +59,6 @@ export default function StationMenu({ onClose }: StationMenuProps) {
             {/* ПРАВА КОЛОНКА: ОБСЛУГОВУВАННЯ */}
             <div className="space-y-4">
                 <h3 className="text-white font-mono font-bold border-b border-white/10 pb-2">SERVICES</h3>
-                
-                <div className="bg-space-900 p-4 rounded border border-white/5">
-                    <div className="flex justify-between items-center mb-2">
-                        <span className="text-gray-400 font-mono flex items-center gap-2"><Fuel size={16}/> FUEL TANK</span>
-                        <span className={`${fuel < 20 ? 'text-neon-red' : 'text-neon-cyan'} font-bold font-mono`}>{fuel} / {maxFuel}</span>
-                    </div>
-                    
-                    {/* Прогрес бар палива */}
-                    <div className="w-full h-2 bg-black rounded-full overflow-hidden border border-white/10 mb-4">
-                        <div className="h-full bg-neon-orange transition-all duration-500" style={{ width: `${(fuel/maxFuel)*100}%` }} />
-                    </div>
-
-                    <div className="flex justify-between items-center">
-                        <div className="text-xs text-gray-500">Cost: 2 CR / Unit</div>
-                        <button 
-                            onClick={buyFuel}
-                            disabled={fuel >= maxFuel || credits < 2}
-                            className="px-6 py-2 bg-neon-orange text-black font-bold font-mono rounded hover:bg-white transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                        >
-                            <Coins size={16}/> 
-                            {fuel >= maxFuel ? 'TANK FULL' : `REFUEL (${fuelCost} CR)`}
-                        </button>
-                    </div>
-                </div>
 
                 <div className="mt-8 pt-4 border-t border-white/10 text-right">
                     <div className="text-gray-400 text-sm font-mono">CURRENT BALANCE</div>

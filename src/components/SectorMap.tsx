@@ -38,14 +38,6 @@ export default function SectorMap() {
       return { type: 'unknown', icon: null, color: 'text-gray-800' }
   }
 
-  const getFuelCost = (target: string) => {
-      if (!currentSector || !target) return 0
-      const [x1, y1] = currentSector.split(':').map(Number)
-      const [x2, y2] = target.split(':').map(Number)
-      const dist = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2))
-      return Math.ceil(dist * 10)
-  }
-
   const moveView = (dx: number, dy: number) => {
       const [cx, cy] = viewCenter.split(':').map(Number)
       setViewCenter(`${cx + dx}:${cy + dy}`)
@@ -93,9 +85,6 @@ export default function SectorMap() {
              <div className="mt-2 pt-2 border-t border-white/10 text-right">
                 <div className="hidden md:block text-[10px] text-gray-400 uppercase tracking-wider">Target</div>
                 <div className="text-white font-bold text-xs md:text-lg">{targetSector}</div>
-                <div className={`text-[10px] md:text-xs mt-1 font-bold ${fuel >= getFuelCost(targetSector) ? 'text-neon-cyan' : 'text-red-500'}`}>
-                    COST: {getFuelCost(targetSector)}
-                </div>
             </div>
         )}
       </div>
@@ -168,11 +157,11 @@ export default function SectorMap() {
         </button>
 
         <button 
-            disabled={!targetSector || fuel < getFuelCost(targetSector || '')}
+            disabled={!targetSector || fuel < (targetSector || '')}
             onClick={startWarp}
             className="flex-[2] max-w-[200px] py-3 bg-neon-cyan text-black font-bold text-[10px] md:text-sm tracking-wider hover:bg-white transition-all rounded shadow-neon disabled:opacity-50 flex justify-center items-center gap-2 uppercase"
         >
-            {targetSector && fuel < getFuelCost(targetSector) ? (
+            {targetSector && fuel < (targetSector) ? (
                 <><Ban size={14}/> NO FUEL</>
             ) : (
                 <><Navigation size={14} className={targetSector ? 'animate-spin-slow' : ''} /> WARP JUMP</>
