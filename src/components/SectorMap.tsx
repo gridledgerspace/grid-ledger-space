@@ -16,7 +16,7 @@ export default function SectorMap() {
   const dragStart = useRef({ x: 0, y: 0 })
   const mapRef = useRef<HTMLDivElement>(null)
   
-  // Розміри
+  // Розміри (фіксовані для стабільності)
   const isMobile = window.innerWidth < 768
   const CELL_SIZE = isMobile ? window.innerWidth * 0.18 : 80 
   const GAP_SIZE = isMobile ? 4 : 8
@@ -33,11 +33,8 @@ export default function SectorMap() {
   const handlePointerDown = (e: React.PointerEvent) => {
     setIsDragging(true)
     dragStart.current = { x: e.clientX, y: e.clientY }
-    
-    // Гарантуємо відсутність анімацій
-    if (mapRef.current) {
-        mapRef.current.style.transition = 'none'
-    }
+    // Жодних анімацій, тільки прямий контроль
+    if (mapRef.current) mapRef.current.style.transition = 'none'
   }
 
   const handlePointerMove = (e: React.PointerEvent) => {
@@ -47,7 +44,7 @@ export default function SectorMap() {
     const dx = e.clientX - dragStart.current.x
     const dy = e.clientY - dragStart.current.y
     
-    // Пряме переміщення (1 до 1 з пальцем/мишкою)
+    // Рухаємо карту за пальцем
     if (mapRef.current) {
         mapRef.current.style.transform = `translate(${dx}px, ${dy}px)`
     }
@@ -61,21 +58,20 @@ export default function SectorMap() {
     const dy = e.clientY - dragStart.current.y
     const dist = Math.sqrt(dx * dx + dy * dy)
 
-    // Миттєве скидання позиції без анімації
+    // 1. Миттєво скидаємо візуальний зсув (бо зараз React перемалює сітку з новим центром)
     if (mapRef.current) {
-        mapRef.current.style.transition = 'none'
+        mapRef.current.style.transition = 'none' // Гарантуємо відсутність анімації
         mapRef.current.style.transform = 'translate(0px, 0px)'
     }
 
-    // Якщо це був просто клік (малий зсув) - нічого не робимо
     if (dist < 10) return 
 
-    // Рахуємо нові координати
+    // 2. Рахуємо нові координати
     const totalCellSize = CELL_SIZE + GAP_SIZE
     const sectorsX = -Math.round(dx / totalCellSize)
     const sectorsY = -Math.round(dy / totalCellSize)
 
-    // Оновлюємо центр, якщо ми перетягнули достатньо далеко
+    // 3. Якщо зміщення достатнє - оновлюємо центр (React миттєво перемалює сітку)
     if (sectorsX !== 0 || sectorsY !== 0) {
         const [cx, cy] = viewCenter.split(':').map(Number)
         setViewCenter(`${cx + sectorsX}:${cy + sectorsY}`)
@@ -84,6 +80,7 @@ export default function SectorMap() {
 
   const centerOnPlayer = () => setViewCenter(currentSector)
 
+  // === ЛОГІКА ВІДОБРАЖЕННЯ ===
   const getSectorContent = (id: string) => {
       if (id === '0:0') return { type: 'station', icon: <Home size={14}/>, color: 'text-white' }
       if (id === currentSector && localObjects.length > 0) {
@@ -174,8 +171,8 @@ export default function SectorMap() {
       >
         <div 
             ref={mapRef}
-            // 🔥 ВАЖЛИВО: Ніяких transition класів. Лише пряме управління.
-            className="grid place-items-center will-change-transform" 
+            // 🔥 ВАЖЛИВО: Ніяких transition/will-change, які можуть викликати ривки
+            className="grid place-items-center" 
             style={{ 
                 width: 'max-content', 
                 gap: `${GAP_SIZE}px`,
