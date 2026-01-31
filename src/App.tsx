@@ -114,7 +114,8 @@ function App() {
   if (loadingData) return <div className="h-screen bg-black text-neon-cyan flex items-center justify-center font-mono">LOADING DATA...</div>
 
   return (
-    <div className="h-screen w-full bg-space-950 relative overflow-hidden text-white font-sans selection:bg-neon-cyan selection:text-black">
+    // Використовуємо h-[100dvh] для коректної висоти на мобільних
+    <div className="h-[100dvh] w-full bg-space-950 relative overflow-hidden text-white font-sans selection:bg-neon-cyan selection:text-black">
       <EventOverlay />
       <CombatOverlay />
       
@@ -127,50 +128,49 @@ function App() {
         <>
           <HangarScene />
           
-          <div className="absolute inset-0 z-10 flex flex-col pointer-events-none">
+          <div className="absolute inset-0 z-10 flex flex-col pointer-events-none h-full">
             
             {/* === 1. HEADER (Top Bar) === */}
             <div className="flex justify-between items-start p-4 bg-gradient-to-b from-black/90 to-transparent pointer-events-auto">
               
               {/* Left: Ship Name & Status */}
               <div className="flex flex-col gap-2">
-                  <div className="glass-panel px-4 py-2 border-l-4 border-l-neon-cyan rounded-r-lg bg-black/40 backdrop-blur-sm">
+                  <div className="glass-panel px-4 py-2 border-l-4 border-l-neon-cyan rounded-r-lg bg-black/40 backdrop-blur-sm shadow-lg">
                     <h2 className="text-neon-cyan font-mono text-lg md:text-xl font-bold tracking-widest leading-none">USS-NEMESIS</h2>
                     <p className="text-[10px] text-gray-400 font-mono tracking-wider mt-1">SECTOR {currentSector}</p>
                   </div>
-                  {/* Sync Indicator (перемістили сюди, щоб не заважав кнопкам) */}
-                  {isSaving && <div className="text-neon-cyan text-[10px] font-mono animate-pulse flex items-center gap-1"><RotateCcw size={10} className="animate-spin"/> SYNCING...</div>}
+                  {/* Sync Indicator */}
+                  {isSaving && <div className="text-neon-cyan text-[10px] font-mono animate-pulse flex items-center gap-1 ml-1"><RotateCcw size={10} className="animate-spin"/> SYNCING...</div>}
               </div>
 
-              {/* Right: Credits & Action Buttons */}
+              {/* Right: Credits & Buttons (Перенесли кнопки сюди) */}
               <div className="flex flex-col items-end gap-2">
-                  {/* Credits */}
-                  <div className="glass-panel px-4 py-2 border-r-4 border-r-neon-orange rounded-l-lg text-right bg-black/40 backdrop-blur-sm">
+                  <div className="glass-panel px-4 py-2 border-r-4 border-r-neon-orange rounded-l-lg text-right bg-black/40 backdrop-blur-sm shadow-lg">
                     <h2 className="text-neon-orange font-mono text-lg md:text-xl font-bold leading-none">{credits.toLocaleString()} CR</h2>
                   </div>
 
-                  {/* ACTION BUTTONS (Moved here!) */}
+                  {/* Buttons Grid */}
                   <div className="flex gap-2">
                       {currentSector === '0:0' && (
-                          <button onClick={() => setShowStation(true)} className="p-2 bg-neon-cyan/10 border border-neon-cyan/50 text-neon-cyan rounded hover:bg-neon-cyan hover:text-black transition-all" title="Station">
+                          <button onClick={() => setShowStation(true)} className="w-10 h-10 flex items-center justify-center bg-neon-cyan/10 border border-neon-cyan/50 text-neon-cyan rounded hover:bg-neon-cyan hover:text-black transition-all shadow-md" title="Station">
                               <ShoppingBag size={18}/>
                           </button>
                       )}
-                      <button onClick={() => saveGame('Manual')} className="p-2 bg-green-500/10 border border-green-500/50 text-green-500 rounded hover:bg-green-500 hover:text-black transition-all" title="Save">
+                      <button onClick={() => saveGame('Manual')} className="w-10 h-10 flex items-center justify-center bg-green-500/10 border border-green-500/50 text-green-500 rounded hover:bg-green-500 hover:text-black transition-all shadow-md" title="Save">
                           <Save size={18}/>
                       </button>
-                      <button onClick={() => supabase.auth.signOut()} className="p-2 bg-red-500/10 border border-red-500/50 text-red-500 rounded hover:bg-red-500 hover:text-black transition-all" title="Logout">
+                      <button onClick={() => supabase.auth.signOut()} className="w-10 h-10 flex items-center justify-center bg-red-500/10 border border-red-500/50 text-red-500 rounded hover:bg-red-500 hover:text-black transition-all shadow-md" title="Logout">
                           <LogOut size={18}/>
                       </button>
                   </div>
               </div>
             </div>
 
-            {/* SPACER */}
+            {/* SPACER (Розтягує простір між верхом і низом) */}
             <div className="flex-1" />
 
-            {/* === 2. BOTTOM DECK (Fixed to bottom) === */}
-            <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-space-950/95 to-transparent p-4 pb-6 md:pb-8 pointer-events-auto flex flex-col gap-4">
+            {/* === 2. BOTTOM DECK (Тепер має бути видно) === */}
+            <div className="bg-gradient-to-t from-black via-space-950/95 to-transparent p-4 pb-8 md:pb-10 pointer-events-auto flex flex-col gap-4">
                
                {/* Slots Grid */}
                <div className="grid grid-cols-4 gap-2 md:gap-4 max-w-xl mx-auto w-full">
@@ -180,8 +180,8 @@ function App() {
                   <Slot icon={<Hexagon size={18} />} label="CARGO" level="EMPTY" color="orange" />
                </div>
 
-               {/* Navigation Button (Fully visible now) */}
-               <div className="flex justify-center mt-1">
+               {/* Navigation Button */}
+               <div className="flex justify-center mt-2 mb-2">
                  <button 
                     onClick={() => useGameStore.setState({ status: 'map' })} 
                     className="w-full max-w-sm bg-neon-orange text-black py-4 font-mono font-bold text-lg rounded clip-path-polygon hover:bg-white transition-all shadow-[0_0_20px_rgba(255,174,0,0.4)] tracking-widest uppercase"
@@ -198,7 +198,6 @@ function App() {
   )
 }
 
-// === КОМПАКТНИЙ СЛОТ ===
 function Slot({ icon, label, level, color }: any) {
   const borderColor = color === 'cyan' ? 'border-neon-cyan/30' : 'border-neon-orange/30';
   const textColor = color === 'cyan' ? 'text-neon-cyan' : 'text-neon-orange';
@@ -208,7 +207,7 @@ function Slot({ icon, label, level, color }: any) {
     <div className={`
         glass-panel flex flex-col items-center justify-center 
         aspect-square rounded-lg border ${borderColor} ${bgHover} 
-        transition-all cursor-pointer group p-1 bg-black/40
+        transition-all cursor-pointer group p-1 bg-black/40 shadow-lg
     `}>
       <div className={`${textColor} mb-1 group-hover:scale-110 transition-transform opacity-80`}>{icon}</div>
       <div className="text-[8px] md:text-[10px] text-gray-500 font-mono tracking-widest">{label}</div>

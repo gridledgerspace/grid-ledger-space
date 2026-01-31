@@ -57,9 +57,6 @@ export default function SectorMap() {
     // Використовуємо h-[100dvh] для коректної висоти на мобільних
     <div className="fixed inset-0 z-50 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-space-900 via-black to-black flex flex-col items-center justify-center animate-in fade-in duration-300 font-mono text-white h-[100dvh] overflow-hidden">
       
-      <div className="absolute inset-0 pointer-events-none opacity-10" 
-           style={{ backgroundImage: 'linear-gradient(#333 1px, transparent 1px), linear-gradient(90deg, #333 1px, transparent 1px)', backgroundSize: '40px 40px' }}>
-      </div>
 
       {/* HEADER: Використовуємо clamp для розміру шрифту */}
       <div className="absolute top-2 left-4 md:top-8 md:left-8 border-l-2 md:border-l-4 border-neon-cyan pl-3 z-10">
@@ -73,14 +70,7 @@ export default function SectorMap() {
       </div>
 
       {/* STATUS PANEL: Менші відступи та шрифти */}
-      <div className="absolute top-2 right-2 md:top-8 md:right-8 text-right bg-black/60 p-3 md:p-6 border border-white/10 rounded-xl backdrop-blur-md shadow-2xl z-10 min-w-[120px] md:min-w-[220px]"> 
-        {targetSector && (
-             <div className="mt-2 pt-2 border-t border-white/10 text-right">
-                <div className="hidden md:block text-[10px] text-gray-400 uppercase tracking-wider">Target</div>
-                <div className="text-white font-bold text-xs md:text-lg">{targetSector}</div>
-            </div>
-        )}
-      </div>
+     
 
       {/* === MAP INTERFACE === */}
       <div className="relative z-10 mt-6 md:mt-0 flex flex-col items-center justify-center">
