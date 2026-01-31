@@ -41,6 +41,7 @@ function App() {
     return () => subscription.unsubscribe()
   }, []) 
 
+  // === ЗАВАНТАЖЕННЯ Гравця ===
   const loadUserData = async (userId: string) => {
     if (isDataLoaded) return 
     setLoadingData(true)
@@ -55,6 +56,12 @@ function App() {
         visitedSectors: data.visited_sectors || ['0:0']
       })
       setIsDataLoaded(true)
+      
+      // 🔥 ВИПРАВЛЕННЯ: Примусове сканування відразу після завантаження
+      // Це гарантує, що станція з'явиться, навіть якщо ми вже в 0:0
+      setTimeout(() => {
+          useGameStore.getState().scanCurrentSector()
+      }, 100)
     }
     setLoadingData(false)
   }
@@ -170,7 +177,7 @@ function App() {
             <div className="flex-1" />
 
             {/* === 2. BOTTOM DECK (Тепер має бути видно) === */}
-            <div className="bg-gradient-to-t from-black via-space-950/95 to-transparent p-4 pb-8 md:pb-10 pointer-events-auto flex flex-col gap-4">
+            <div className="bg-gradient-to-t from-black via-space-950/95 to-transparent p-4 pb-4 md:pb-10 pointer-events-auto flex flex-col gap-4">
                
                {/* Slots Grid */}
                <div className="grid grid-cols-4 gap-2 md:gap-4 max-w-xl mx-auto w-full">
