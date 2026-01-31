@@ -34,7 +34,7 @@ export default function SectorMap() {
     setIsDragging(true)
     dragStart.current = { x: e.clientX, y: e.clientY }
     
-    // 🔥 ВАЖЛИВО: Миттєво вимикаємо будь-яку анімацію при дотику
+    // Гарантуємо відсутність анімацій
     if (mapRef.current) {
         mapRef.current.style.transition = 'none'
     }
@@ -47,7 +47,7 @@ export default function SectorMap() {
     const dx = e.clientX - dragStart.current.x
     const dy = e.clientY - dragStart.current.y
     
-    // Пряме управління позицією (без затримок)
+    // Пряме переміщення (1 до 1 з пальцем/мишкою)
     if (mapRef.current) {
         mapRef.current.style.transform = `translate(${dx}px, ${dy}px)`
     }
@@ -61,18 +61,21 @@ export default function SectorMap() {
     const dy = e.clientY - dragStart.current.y
     const dist = Math.sqrt(dx * dx + dy * dy)
 
-    // 🔥 Вмикаємо анімацію ТІЛЬКИ для плавного повернення в центр
+    // Миттєве скидання позиції без анімації
     if (mapRef.current) {
-        mapRef.current.style.transition = 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)'
+        mapRef.current.style.transition = 'none'
         mapRef.current.style.transform = 'translate(0px, 0px)'
     }
 
+    // Якщо це був просто клік (малий зсув) - нічого не робимо
     if (dist < 10) return 
 
+    // Рахуємо нові координати
     const totalCellSize = CELL_SIZE + GAP_SIZE
     const sectorsX = -Math.round(dx / totalCellSize)
     const sectorsY = -Math.round(dy / totalCellSize)
 
+    // Оновлюємо центр, якщо ми перетягнули достатньо далеко
     if (sectorsX !== 0 || sectorsY !== 0) {
         const [cx, cy] = viewCenter.split(':').map(Number)
         setViewCenter(`${cx + sectorsX}:${cy + sectorsY}`)
@@ -171,8 +174,8 @@ export default function SectorMap() {
       >
         <div 
             ref={mapRef}
-            // 🔥 ВИПРАВЛЕННЯ: Прибрали всі класи transition-* звідси
-            className="grid will-change-transform place-items-center" 
+            // 🔥 ВАЖЛИВО: Ніяких transition класів. Лише пряме управління.
+            className="grid place-items-center will-change-transform" 
             style={{ 
                 width: 'max-content', 
                 gap: `${GAP_SIZE}px`,
@@ -192,7 +195,7 @@ export default function SectorMap() {
                         disabled={isCurrent}
                         style={{ width: `${CELL_SIZE}px`, height: `${CELL_SIZE}px` }}
                         className={`
-                            rounded border flex flex-col items-center justify-center relative transition-all duration-200 group overflow-hidden
+                            rounded border flex flex-col items-center justify-center relative group overflow-hidden
                             ${isCurrent 
                                 ? 'bg-neon-cyan border-neon-cyan text-black shadow-neon z-20 scale-110' 
                                 : isTarget
