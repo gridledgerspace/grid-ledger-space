@@ -23,17 +23,19 @@ export interface SectorDetail {
     lastUpdated: number
 }
 
-// === ДОПОМІЖНІ ФУНКЦІЇ ===
+// === НОВА ФУНКЦІЯ ДИСТАНЦІЇ (ПО КЛІТИНКАХ) ===
+// Повертає кількість "кроків" до цілі (по діагоналі теж рахується за 1 крок)
+export const getGridDistance = (s1: string, s2: string) => {
+    if (!s1 || !s2) return 0
+    const [x1, y1] = s1.split(':').map(Number)
+    const [x2, y2] = s2.split(':').map(Number)
+    return Math.max(Math.abs(x2 - x1), Math.abs(y2 - y1))
+}
+
 const getDistance = (s1: string, s2: string) => {
     const [x1, y1] = s1.split(':').map(Number)
     const [x2, y2] = s2.split(':').map(Number)
     return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2))
-}
-
-// Залишаємо цю функцію, але тепер вона повертає просто "відстань" (можна використовувати для таймерів варпу)
-export const calculateDistance = (current: string, target: string): number => {
-    if (!current || !target) return 0
-    return Math.ceil(getDistance(current, target) * 10)
 }
 
 const generateSectorContent = (sectorId: string) => {
@@ -64,9 +66,12 @@ interface GameState {
   status: 'hangar' | 'map' | 'warping' | 'space' | 'mining' | 'combat' | 'debris'
   currentSectorType: 'wild' | 'station'
   credits: number
-  // fuel видалено
   hull: number
   maxHull: number
+  
+  // 🔥 НОВЕ ПОЛЕ: Дальність стрибка
+  jumpRange: number 
+  
   cargo: Record<string, number>
   maxCargo: number
   modules: string[]
@@ -98,7 +103,6 @@ interface GameState {
   mineObject: (id: string) => void
   extractResource: () => void
   sellResource: (resource: string) => void
-  // buyFuel видалено
   repairHull: () => void
   startCombat: (enemyId: string) => void
   playerAttack: () => void
@@ -115,6 +119,10 @@ export const useGameStore = create<GameState>((set, get) => ({
   credits: 1000,
   hull: 100,
   maxHull: 100,
+  
+  // За замовчуванням радіус стрибка 1 (сусіди)
+  jumpRange: 1, 
+
   cargo: { Iron: 0, Gold: 0, DarkMatter: 0 },
   maxCargo: 50,
   modules: ['scanner', 'mining_laser'],
@@ -148,9 +156,16 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   startWarp: () => {
-      const { targetSector } = get()
+      const { targetSector, currentSector, jumpRange } = get()
       if (!targetSector) return
-      // Більше немає перевірки пального
+      
+      // 🔥 ПЕРЕВІРКА ДИСТАНЦІЇ
+      const dist = getGridDistance(currentSector, targetSector)
+      if (dist > jumpRange) {
+          alert('JUMP RANGE EXCEEDED! UPGRADE ENGINE.')
+          return
+      }
+
       set({ status: 'warping' })
   },
 
@@ -276,7 +291,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   fetchSectorGrid: async (center: string) => {
       if (!center) return
       const [cx, cy] = center.split(':').map(Number)
-      const gridSize = 2
+      const gridSize = 4 // Радіус завантаження даних
       const idsToFetch: string[] = []
       for (let y = cy - gridSize; y <= cy + gridSize; y++) {
           for (let x = cx - gridSize; x <= cx + gridSize; x++) { idsToFetch.push(`${x}:${y}`) }
