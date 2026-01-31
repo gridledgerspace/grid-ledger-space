@@ -16,9 +16,7 @@ export default function SectorMap() {
   const dragStart = useRef({ x: 0, y: 0 })
   const mapRef = useRef<HTMLDivElement>(null)
   
-  // 🔥 ВИПРАВЛЕННЯ РОЗМІРІВ 🔥
-  // Вираховуємо розмір клітинки в пікселях один раз.
-  // 18vw для мобільних, 80px для десктопу
+  // Розміри
   const isMobile = window.innerWidth < 768
   const CELL_SIZE = isMobile ? window.innerWidth * 0.18 : 80 
   const GAP_SIZE = isMobile ? 4 : 8
@@ -35,14 +33,21 @@ export default function SectorMap() {
   const handlePointerDown = (e: React.PointerEvent) => {
     setIsDragging(true)
     dragStart.current = { x: e.clientX, y: e.clientY }
-    if (mapRef.current) mapRef.current.style.transition = 'none'
+    
+    // 🔥 ВАЖЛИВО: Миттєво вимикаємо будь-яку анімацію при дотику
+    if (mapRef.current) {
+        mapRef.current.style.transition = 'none'
+    }
   }
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isDragging) return
-    e.preventDefault() // Запобігає скролу сторінки на мобільних
+    e.preventDefault() 
+    
     const dx = e.clientX - dragStart.current.x
     const dy = e.clientY - dragStart.current.y
+    
+    // Пряме управління позицією (без затримок)
     if (mapRef.current) {
         mapRef.current.style.transform = `translate(${dx}px, ${dy}px)`
     }
@@ -56,14 +61,14 @@ export default function SectorMap() {
     const dy = e.clientY - dragStart.current.y
     const dist = Math.sqrt(dx * dx + dy * dy)
 
+    // 🔥 Вмикаємо анімацію ТІЛЬКИ для плавного повернення в центр
     if (mapRef.current) {
-        mapRef.current.style.transition = 'transform 0.3s ease-out'
+        mapRef.current.style.transition = 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)'
         mapRef.current.style.transform = 'translate(0px, 0px)'
     }
 
     if (dist < 10) return 
 
-    // Враховуємо Gap при розрахунку зміщення
     const totalCellSize = CELL_SIZE + GAP_SIZE
     const sectorsX = -Math.round(dx / totalCellSize)
     const sectorsY = -Math.round(dy / totalCellSize)
@@ -166,12 +171,11 @@ export default function SectorMap() {
       >
         <div 
             ref={mapRef}
-            // 🔥 ВИПРАВЛЕННЯ: width: 'max-content' не дає сітці сплющуватись
-            className="grid transition-transform duration-75 ease-linear will-change-transform place-items-center"
+            // 🔥 ВИПРАВЛЕННЯ: Прибрали всі класи transition-* звідси
+            className="grid will-change-transform place-items-center" 
             style={{ 
                 width: 'max-content', 
                 gap: `${GAP_SIZE}px`,
-                // 🔥 ВИПРАВЛЕННЯ: Жорстка ширина колонок
                 gridTemplateColumns: `repeat(${gridSize * 2 + 1}, ${CELL_SIZE}px)`
             }}
         >
@@ -186,7 +190,6 @@ export default function SectorMap() {
                         key={sectorId}
                         onClick={() => !isDragging && setTargetSector(sectorId)}
                         disabled={isCurrent}
-                        // 🔥 ВИПРАВЛЕННЯ: Жорсткі розміри кнопки
                         style={{ width: `${CELL_SIZE}px`, height: `${CELL_SIZE}px` }}
                         className={`
                             rounded border flex flex-col items-center justify-center relative transition-all duration-200 group overflow-hidden
