@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { useGameStore, getGridDistance } from '../store'
-import { Navigation, Crosshair, MapPin, Loader2, LocateFixed, Rocket, Home, Skull, Gem, CircleDashed, Ban } from 'lucide-react'
+import { Navigation, MapPin, Loader2, LocateFixed, Rocket, Home, Skull, Gem, CircleDashed, Ban, AlertTriangle } from 'lucide-react'
 
 export default function SectorMap() {
   const { 
     currentSector, visitedSectors, targetSector, setTargetSector, 
     startWarp, fetchSectorGrid, sectorDetails, localObjects,
-    jumpRange // 🔥 Отримуємо дальність стрибка
+    jumpRange 
   } = useGameStore((state: any) => state)
 
   const [viewCenter, setViewCenter] = useState(currentSector || '0:0')
@@ -74,9 +74,6 @@ export default function SectorMap() {
         offset.current.y = currentTotalY
     }
     applyTransform(offset.current.x, offset.current.y)
-    
-    const dist = Math.sqrt(dx * dx + dy * dy)
-    if (dist < 5) { /* Click logic handled on buttons */ }
   }
 
   const centerOnPlayer = () => {
@@ -85,26 +82,46 @@ export default function SectorMap() {
       applyTransform(0, 0)
   }
 
+  // 🔥 ОНОВЛЕНА ЛОГІКА ВІДОБРАЖЕННЯ
   const getSectorContent = (id: string) => {
-      if (id === '0:0') return { type: 'station', icon: <Home size={14}/>, color: 'text-white' }
+      if (id === '0:0') return { type: 'station', icon: <Home size={14}/>, color: 'text-white', hasEnemies: false }
+      
+      let hasEnemies = false
+      let hasResources = false
+      let isDepleted = false
+      let hasPlayer = false
+
+      // 1. Перевіряємо локальні об'єкти (якщо це поточний сектор)
       if (id === currentSector && localObjects.length > 0) {
-           const hasEnemy = localObjects.some((o: any) => o.type === 'enemy')
-           const hasPlayer = localObjects.some((o: any) => o.type === 'player')
-           const hasResources = localObjects.some((o: any) => o.type === 'asteroid' && o.data)
-           if (hasPlayer) return { type: 'player', icon: <Rocket size={14}/>, color: 'text-green-400' }
-           if (hasEnemy) return { type: 'enemy', icon: <Skull size={14}/>, color: 'text-neon-red' }
-           if (hasResources) return { type: 'resources', icon: <Gem size={14}/>, color: 'text-neon-cyan' }
+           hasEnemies = localObjects.some((o: any) => o.type === 'enemy')
+           hasPlayer = localObjects.some((o: any) => o.type === 'player')
+           hasResources = localObjects.some((o: any) => o.type === 'asteroid' && o.data)
+      } 
+      // 2. Інакше беремо з кешу (Sector Details)
+      else {
+          const details = sectorDetails[id]
+          if (details) {
+              hasEnemies = details.hasEnemies
+              hasResources = details.hasResources
+              isDepleted = details.isDepleted
+          }
       }
-      const details = sectorDetails[id]
-      if (details) {
-          if (details.isDepleted) return { type: 'empty', icon: <CircleDashed size={14}/>, color: 'text-gray-700' }
-          if (details.hasResources) return { type: 'resources', icon: <Gem size={14}/>, color: 'text-neon-cyan' }
-          return { type: 'empty', icon: <CircleDashed size={14}/>, color: 'text-gray-700' }
-      }
-      return { type: 'unknown', icon: null, color: 'text-gray-800' }
+
+      // 3. Формуємо результат
+      if (hasPlayer) return { type: 'player', icon: <Rocket size={14}/>, color: 'text-green-400', hasEnemies }
+      
+      // Пріоритет відображення:
+      // Якщо є ресурси -> показуємо Gem (але якщо є ворог, додамо червону рамку в рендері)
+      if (hasResources) return { type: 'resources', icon: <Gem size={14}/>, color: 'text-neon-cyan', hasEnemies }
+      
+      // Якщо ресурсів немає, але є ворог -> показуємо Череп
+      if (hasEnemies) return { type: 'enemy', icon: <Skull size={14}/>, color: 'text-neon-red', hasEnemies }
+      
+      if (isDepleted) return { type: 'empty', icon: <CircleDashed size={14}/>, color: 'text-gray-700', hasEnemies: false }
+      
+      return { type: 'unknown', icon: null, color: 'text-gray-800', hasEnemies: false }
   }
 
-  // Перевірка, чи сектор в межах досяжності
   const isTargetReachable = targetSector && getGridDistance(currentSector, targetSector) <= jumpRange
 
   const [cx, cy] = viewCenter.split(':').map(Number)
@@ -147,7 +164,6 @@ export default function SectorMap() {
                 <div className="text-[10px] text-gray-400 uppercase tracking-wider">Target</div>
                 <div className="text-white font-bold text-xl">{targetSector}</div>
                 
-                {/* Distance & Reachability Check */}
                 <div className="mt-2 text-[10px] text-gray-500">JUMP DISTANCE</div>
                 <div className={`font-bold text-lg flex items-center justify-end gap-2 ${isTargetReachable ? 'text-neon-cyan' : 'text-red-500'}`}>
                     {getGridDistance(currentSector, targetSector)} / {jumpRange}
@@ -180,10 +196,37 @@ export default function SectorMap() {
                 const isTarget = sectorId === targetSector
                 const isVisited = visitedSectors.includes(sectorId) || sectorId === '0:0' || isCurrent
                 const content = getSectorContent(sectorId)
-                
-                // 🔥 ПЕРЕВІРКА ДОСЯЖНОСТІ ДЛЯ КОЖНОЇ КЛІТИНКИ
                 const dist = getGridDistance(currentSector, sectorId)
                 const isReachable = dist <= jumpRange
+
+                // 🔥 РОЗРАХУНОК СТИЛІВ КЛІТИНКИ
+                let cellStyle = ''
+                
+                if (isCurrent) {
+                    cellStyle = 'bg-neon-cyan border-neon-cyan text-black shadow-neon z-20 scale-110'
+                } else if (isTarget) {
+                    // Якщо це ціль - рамка пунктирна
+                    if (isReachable) {
+                        cellStyle = 'bg-neon-orange/20 border-neon-orange text-neon-orange border-dashed z-10'
+                    } else {
+                        cellStyle = 'bg-red-900/40 border-red-500 text-red-500 border-dashed z-10'
+                    }
+                } else if (isReachable) {
+                    // Якщо досяжний, але не обраний
+                    if (isVisited) {
+                        // Якщо є ворог - ЧЕРВОНА рамка і фон
+                        if (content.hasEnemies) {
+                            cellStyle = 'bg-red-900/30 border-red-500 hover:bg-red-900/50 hover:border-red-400 text-white'
+                        } else {
+                            cellStyle = 'bg-space-800/80 border-white/20 hover:border-neon-cyan/50 hover:bg-space-700'
+                        }
+                    } else {
+                        cellStyle = 'bg-black/40 border-white/10 hover:border-white/30'
+                    }
+                } else {
+                    // Недосяжний
+                    cellStyle = 'bg-black/20 border-white/5 opacity-40 grayscale'
+                }
 
                 return (
                     <button 
@@ -194,30 +237,28 @@ export default function SectorMap() {
                         className={`
                             rounded border flex flex-col items-center justify-center relative group overflow-hidden
                             transition-colors duration-200
-                            ${isCurrent 
-                                ? 'bg-neon-cyan border-neon-cyan text-black shadow-neon z-20 scale-110' 
-                                : isTarget
-                                    ? isReachable 
-                                        ? 'bg-neon-orange/10 border-neon-orange text-neon-orange border-dashed z-10'
-                                        : 'bg-red-500/10 border-red-500 text-red-500 border-dashed z-10'
-                                    : isReachable
-                                        ? isVisited 
-                                            ? 'bg-space-800/80 border-white/20 hover:border-neon-cyan/50 hover:bg-space-700'
-                                            : 'bg-black/40 border-white/10 hover:border-white/30'
-                                        // Недосяжні сектори тьмяніші і мають червонуватий відтінок
-                                        : 'bg-black/20 border-white/5 opacity-40 grayscale'}
+                            ${cellStyle}
                         `}
                     >
                         {isVisited && !isCurrent && content.icon && (
-                            <div className={`opacity-80 ${content.color} scale-75 md:scale-100`}>
+                            <div className={`opacity-80 ${content.color} scale-75 md:scale-100 relative`}>
                                 {content.icon}
+                                {/* Якщо є ресурси І ворог - додаємо малий індикатор небезпеки біля іконки */}
+                                {content.hasEnemies && content.type === 'resources' && (
+                                    <div className="absolute -top-1 -right-2 text-red-500 animate-pulse">
+                                        <AlertTriangle size={10} fill="currentColor" />
+                                    </div>
+                                )}
                             </div>
                         )}
+                        
                         <span className={`text-[8px] md:text-[10px] font-mono mt-0.5 ${isCurrent ? 'font-black' : 'text-gray-500'}`}>
                             {isVisited ? sectorId : ''}
                         </span>
+                        
                         {isCurrent && <span className="text-[6px] md:text-[9px] font-black leading-none uppercase mt-1">YOU</span>}
-                        {isTarget && !isCurrent && <Crosshair size={14} className="absolute inset-0 m-auto animate-spin-slow opacity-50"/>}
+                        
+                        {/* 🔥 ВИДАЛЕНО Crosshair, який вас дратував */}
                     </button>
                 )
             })}

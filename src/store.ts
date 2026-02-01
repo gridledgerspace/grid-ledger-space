@@ -18,7 +18,8 @@ export interface SpaceObject {
 
 export interface SectorDetail {
     id: string
-    hasResources: boolean
+    hasResources: boolean // ресурси
+    hasEnemies: boolean // вороги
     isDepleted: boolean
     lastUpdated: number
 }
@@ -311,16 +312,27 @@ export const useGameStore = create<GameState>((set, get) => ({
       const newDetails: Record<string, SectorDetail> = {}
       const now = new Date().getTime()
       data.forEach((row: any) => {
-          let isDepleted = false
-          if (row.last_depleted_at) {
-              const depTime = new Date(row.last_depleted_at).getTime()
-              if ((now - depTime) < 3 * 60 * 60 * 1000) isDepleted = true
-          }
-          const totalRes = (row.iron_amount || 0) + (row.gold_amount || 0) + (row.dark_matter_amount || 0)
-          const hasResources = totalRes > 0 && !isDepleted
-          newDetails[row.id] = { id: row.id, hasResources, isDepleted, lastUpdated: now }
-      })
-      set(state => ({ sectorDetails: { ...state.sectorDetails, ...newDetails } }))
+        let isDepleted = false
+        if (row.last_depleted_at) {
+            const depTime = new Date(row.last_depleted_at).getTime()
+            if ((now - depTime) < 3 * 60 * 60 * 1000) isDepleted = true
+        }
+        
+        const totalRes = (row.iron_amount || 0) + (row.gold_amount || 0) + (row.dark_matter_amount || 0)
+        const hasResources = totalRes > 0 && !isDepleted
+        
+        // 🔥 ДОДАНО: Перевірка на ворогів
+        const hasEnemies = (row.enemy_count || 0) > 0
+
+        newDetails[row.id] = { 
+            id: row.id, 
+            hasResources, 
+            hasEnemies, // <--- Зберігаємо тут
+            isDepleted, 
+            lastUpdated: now 
+        }
+    })
+    set(state => ({ sectorDetails: { ...state.sectorDetails, ...newDetails } }))
   },
 
   mineObject: (id) => {
