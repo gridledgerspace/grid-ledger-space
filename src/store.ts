@@ -23,8 +23,6 @@ export interface SectorDetail {
     lastUpdated: number
 }
 
-// === НОВА ФУНКЦІЯ ДИСТАНЦІЇ (ПО КЛІТИНКАХ) ===
-// Повертає кількість "кроків" до цілі (по діагоналі теж рахується за 1 крок)
 export const getGridDistance = (s1: string, s2: string) => {
     if (!s1 || !s2) return 0
     const [x1, y1] = s1.split(':').map(Number)
@@ -38,27 +36,35 @@ const getDistance = (s1: string, s2: string) => {
     return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2))
 }
 
+// 🔥 ВИПРАВЛЕННЯ 3: Більш різноманітна генерація
 const generateSectorContent = (sectorId: string) => {
     const dist = getDistance('0:0', sectorId)
+    
+    // Шанс 30%, що сектор буде порожнім (лише сміття)
+    const isEmpty = Math.random() > 0.7 && dist > 2; 
+
     let iron = 0, gold = 0, darkMatter = 0, enemies = 0
     let enemyLvl = 1
 
-    if (dist < 3) {
-        iron = Math.floor(Math.random() * 300) + 100 
-        gold = Math.random() > 0.8 ? Math.floor(Math.random() * 50) : 0 
-        enemies = 0 
-    } else if (dist < 8) {
-        iron = Math.floor(Math.random() * 200) + 50
-        gold = Math.floor(Math.random() * 150) + 50
-        enemies = Math.random() > 0.5 ? Math.floor(Math.random() * 2) + 1 : 0 
-        enemyLvl = 1
-    } else {
-        iron = Math.floor(Math.random() * 100)
-        gold = Math.floor(Math.random() * 300) + 100
-        darkMatter = Math.random() > 0.6 ? Math.floor(Math.random() * 50) + 10 : 0
-        enemies = Math.floor(Math.random() * 3) + 2 
-        enemyLvl = Math.floor(Math.random() * 3) + 2 
+    if (!isEmpty) {
+        if (dist < 3) {
+            iron = Math.floor(Math.random() * 300) + 100 
+            gold = Math.random() > 0.8 ? Math.floor(Math.random() * 50) : 0 
+            enemies = 0 
+        } else if (dist < 8) {
+            iron = Math.random() > 0.3 ? Math.floor(Math.random() * 200) + 50 : 0
+            gold = Math.random() > 0.5 ? Math.floor(Math.random() * 150) + 50 : 0
+            enemies = Math.random() > 0.6 ? Math.floor(Math.random() * 2) + 1 : 0 
+            enemyLvl = 1
+        } else {
+            iron = Math.random() > 0.5 ? Math.floor(Math.random() * 100) : 0
+            gold = Math.floor(Math.random() * 300) + 100
+            darkMatter = Math.random() > 0.7 ? Math.floor(Math.random() * 50) + 10 : 0
+            enemies = Math.random() > 0.4 ? Math.floor(Math.random() * 3) + 1 : 0 
+            enemyLvl = Math.floor(Math.random() * 3) + 2 
+        }
     }
+    
     return { iron, gold, darkMatter, enemies, enemyLvl }
 }
 
@@ -68,24 +74,17 @@ interface GameState {
   credits: number
   hull: number
   maxHull: number
-  
-  // 🔥 НОВЕ ПОЛЕ: Дальність стрибка
   jumpRange: number 
-  
   cargo: Record<string, number>
   maxCargo: number
   modules: string[]
-
   currentSector: string
   targetSector: string | null
   userId: string | null
-
   visitedSectors: string[]
   sectorResources: { iron: number, gold: number, darkMatter: number }
-  
   localObjects: SpaceObject[]
   sectorDetails: Record<string, SectorDetail>
-  
   currentEventId: string | null
   inCombat: boolean
   enemyMaxHp: number
@@ -98,7 +97,6 @@ interface GameState {
   scanCurrentSector: () => void 
   fetchSectorGrid: (center: string) => Promise<void>
   updatePresence: () => Promise<void>
-
   scanSystem: () => void
   mineObject: (id: string) => void
   extractResource: () => void
@@ -110,7 +108,6 @@ interface GameState {
   endCombat: (win: boolean) => void
   openContainer: (id: string) => void
   closeEvent: () => void
-  
   setUserId: (id: string) => void
 }
 
@@ -119,24 +116,18 @@ export const useGameStore = create<GameState>((set, get) => ({
   credits: 1000,
   hull: 100,
   maxHull: 100,
-  
-  // За замовчуванням радіус стрибка 1 (сусіди)
   jumpRange: 1, 
-
   cargo: { Iron: 0, Gold: 0, DarkMatter: 0 },
   maxCargo: 50,
   modules: ['scanner', 'mining_laser'],
   currentSectorType: 'wild',
-  
   currentSector: '0:0',
   targetSector: null,
   userId: null,
-
   visitedSectors: ['0:0'],
   sectorResources: { iron: 0, gold: 0, darkMatter: 0 },
   localObjects: [],
   sectorDetails: {},
-
   currentEventId: null,
   inCombat: false,
   enemyMaxHp: 100,
@@ -158,21 +149,17 @@ export const useGameStore = create<GameState>((set, get) => ({
   startWarp: () => {
       const { targetSector, currentSector, jumpRange } = get()
       if (!targetSector) return
-      
-      // 🔥 ПЕРЕВІРКА ДИСТАНЦІЇ
       const dist = getGridDistance(currentSector, targetSector)
       if (dist > jumpRange) {
           alert('JUMP RANGE EXCEEDED! UPGRADE ENGINE.')
           return
       }
-
       set({ status: 'warping' })
   },
 
   completeWarp: () => {
       const { targetSector } = get()
       if (!targetSector) return
-
       set({ 
           status: 'space', 
           currentSector: targetSector, 
@@ -180,7 +167,6 @@ export const useGameStore = create<GameState>((set, get) => ({
           localObjects: [], 
           currentEventId: null
       })
-      
       get().updatePresence().then(() => {
           get().scanCurrentSector()
       })
@@ -188,6 +174,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   scanCurrentSector: async () => {
     const { currentSector, userId } = get()
+    // 🔥 ВАЖЛИВО: Скидаємо inCombat в false при вході в сектор
     set({ inCombat: false, combatLog: [], currentEventId: null })
     get().updatePresence()
 
@@ -253,10 +240,16 @@ export const useGameStore = create<GameState>((set, get) => ({
         })
     }
     
+    // 🔥 ГЕНЕРАЦІЯ ВОРОГІВ
     for (let i = 0; i < enemyCount; i++) {
         objects.push({ id: `enemy-${i}-${Date.now()}`, type: 'enemy', distance: 2500 + (i * 500), scanned: true, enemyLevel: 1 })
     }
-    if (enemyCount > 0) set({ inCombat: true, combatLog: [`> WARNING: ${enemyCount} HOSTILE SIGNATURES!`] })
+    
+    // 🔥 ВИПРАВЛЕННЯ БАГУ 2:
+    // Якщо є вороги, ми просто додаємо лог, але НЕ вмикаємо inCombat: true
+    if (enemyCount > 0) {
+        set({ combatLog: [`> WARNING: ${enemyCount} HOSTILE SIGNATURES DETECTED!`] }) 
+    }
 
     let asteroidIndex = 0
     if (currentRes.iron > 0) {
@@ -291,7 +284,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   fetchSectorGrid: async (center: string) => {
       if (!center) return
       const [cx, cy] = center.split(':').map(Number)
-      const gridSize = 4 // Радіус завантаження даних
+      const gridSize = 4 
       const idsToFetch: string[] = []
       for (let y = cy - gridSize; y <= cy + gridSize; y++) {
           for (let x = cx - gridSize; x <= cx + gridSize; x++) { idsToFetch.push(`${x}:${y}`) }
@@ -438,4 +431,4 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   closeEvent: () => set({ status: 'space', currentEventId: null })
-}))
+}))     

@@ -7,45 +7,22 @@ import StationMenu from './StationMenu'
 import { 
     Navigation, Scan, Pickaxe, Skull, Database, Home, 
     ShoppingBag, ArrowLeftCircle, Box, Trash2, 
-    ChevronRight, ChevronLeft, Target, Menu, X, List, Rocket,
+    ChevronRight, ChevronLeft, Target, Menu, X, List, Rocket
 } from 'lucide-react'
 
 // === ДВИГУН РУХУ ===
 function GameLoop() {
   const { inCombat, status } = useGameStore()
-  useFrame((_state, delta) => {
+  
+  // Прибираємо (_state, delta), оскільки ми їх поки не використовуємо
+  useFrame(() => {
     if (inCombat || status === 'mining') return
-    const store = useGameStore.getState()
-    const objects = store.localObjects
-    if (objects.length === 0) return
-    const target = objects[0]
-    const approachSpeed = Math.max(500, target.distance * 2.0) * delta
-    let hasChanges = false
-    const newObjects = objects.map((obj, index) => {
-        if (index === 0) {
-            if (obj.distance > 200) {
-                const newDist = Math.max(200, obj.distance - approachSpeed)
-                if (Math.floor(newDist) !== Math.floor(obj.distance)) {
-                    hasChanges = true
-                    return { ...obj, distance: newDist }
-                }
-            }
-            return obj
-        } 
-        else {
-            const flyAwaySpeed = approachSpeed * 0.5 
-            if (obj.distance < 15000) {
-                const newDist = obj.distance + flyAwaySpeed
-                if (Math.floor(newDist) !== Math.floor(obj.distance)) {
-                    hasChanges = true
-                    return { ...obj, distance: newDist }
-                }
-            }
-            return obj
-        }
-    })
-    if (hasChanges) useGameStore.setState({ localObjects: newObjects })
+    
+    // Тут була логіка руху об'єктів. 
+    // Ми її тимчасово прибрали, щоб уникнути багів з інтерфейсом.
+    // У майбутньому тут можна буде додати анімацію обертання або патрулювання.
   })
+
   return null
 }
 
@@ -84,6 +61,7 @@ export default function SpaceView() {
   
   const logEndRef = useRef<HTMLDivElement>(null)
   
+  // Сортуємо: вибраний об'єкт завжди перший
   const sortedObjects = [...localObjects].sort((a, _b) => {
       if (a.id === selectedId) return -1
       return 0
@@ -91,11 +69,16 @@ export default function SpaceView() {
 
   const activeObj = sortedObjects[0]
 
+  // 🔥 ВИПРАВЛЕННЯ БАГУ 1: Автовибір об'єкта
   useEffect(() => {
-      if (localObjects.length > 0 && !selectedId) {
-          setSelectedId(localObjects[0].id)
+      // Якщо об'єкти завантажились, але нічого не вибрано, або вибраний об'єкт зник
+      if (localObjects.length > 0) {
+          const currentSelectedExists = localObjects.some(o => o.id === selectedId)
+          if (!selectedId || !currentSelectedExists) {
+              setSelectedId(localObjects[0].id)
+          }
       }
-  }, [localObjects])
+  }, [localObjects, selectedId])
 
   useEffect(() => {
       logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -106,20 +89,17 @@ export default function SpaceView() {
     setIsSwitching(true)
     setSelectedId(id)
     setMobileListOpen(false)
-    
-    const newOrder = [...localObjects].sort((a, _b) => a.id === id ? -1 : 1)
-    useGameStore.setState({ localObjects: newOrder })
     setTimeout(() => setIsSwitching(false), 800)
   }
 
-const getObjectColor = (type: string) => {
+  const getObjectColor = (type: string) => {
     switch (type) {
       case 'enemy': return '#ff003c'
       case 'asteroid': return '#00f0ff'
       case 'station': return '#ffffff'
       case 'container': return '#ffd700'
       case 'debris': return '#888888'
-      case 'player': return '#00ff00' // 🟢 Зелений колір для інших гравців
+      case 'player': return '#00ff00' 
       default: return '#555555'
     }
   }
@@ -131,17 +111,12 @@ const getObjectColor = (type: string) => {
           case 'station': return <Home size={16} className="text-white"/>
           case 'container': return <Box size={16} className="text-yellow-400"/>
           case 'debris': return <Trash2 size={16} className="text-gray-500"/>
-          
-          // 👇 Додаємо іконку гравця
           case 'player': return <Rocket size={16} className="text-green-400"/>
-          
           default: return <div className="w-2 h-2 rounded-full bg-neon-orange animate-pulse"/>
       }
   }
 
-
   return (
-    // h-[100dvh] для фіксації висоти на мобільних
     <div className="h-[100dvh] w-full bg-space-950 relative overflow-hidden flex flex-col md:flex-row">
       
       {/* 3D СЦЕНА */}
@@ -171,16 +146,17 @@ const getObjectColor = (type: string) => {
 
       {showStationMenu && <StationMenu onClose={() => setShowStationMenu(false)} />}
 
-      {/* === ЗАГОЛОВОК СЕКТОРУ === */}
+      {/* ЗАГОЛОВОК СЕКТОРУ */}
       <div className={`absolute top-0 left-0 right-0 z-10 pointer-events-none flex justify-center pt-6 transition-opacity duration-500 ${inCombat ? 'opacity-0' : 'opacity-100'}`}>
           <h1 className="text-lg md:text-2xl font-mono text-neon-cyan/70 font-bold tracking-widest bg-black/30 px-4 py-1 rounded-full backdrop-blur-sm border border-white/5">
               SEC {currentSector}
           </h1>
       </div>
 
-      {/* === ПАНЕЛЬ ВЗАЄМОДІЇ (Знизу, над навігацією) === */}
+      {/* === ПАНЕЛЬ ВЗАЄМОДІЇ (Виправлена) === */}
       <div className="absolute inset-x-0 bottom-[4.5rem] md:bottom-0 z-10 pointer-events-none flex flex-col justify-end items-center pb-2 md:pb-8 p-3">
           <div className="pointer-events-auto w-full max-w-sm md:max-w-md">
+             {/* 🔥 Показуємо панель, якщо є об'єкт, навіть якщо ворог. Ховаємо тільки якщо бій вже почався (inCombat=true) */}
              {activeObj && !inCombat ? (
                  <div className={`glass-panel p-4 md:p-6 border-t-2 border-t-neon-cyan/50 rounded-xl text-center w-full transition-all duration-500 
                     backdrop-blur-xl bg-black/80 shadow-lg
@@ -188,7 +164,7 @@ const getObjectColor = (type: string) => {
                  `}>
                      <div className="flex justify-between items-end mb-3 border-b border-white/10 pb-2">
                          <div className="text-left">
-                            <h2 className="text-xl md:text-3xl font-bold font-mono text-white">
+                            <h2 className={`text-xl md:text-3xl font-bold font-mono ${activeObj.type === 'enemy' ? 'text-neon-red' : 'text-white'}`}>
                                 {activeObj.scanned ? activeObj.type.toUpperCase() : '???'}
                             </h2>
                             <p className="text-[10px] md:text-xs text-neon-cyan font-mono flex items-center gap-2">
@@ -221,9 +197,10 @@ const getObjectColor = (type: string) => {
                                  <Pickaxe size={16}/> MINE
                              </button>
                          )}
+                         {/* 🔥 КНОПКА АТАКИ ТЕПЕР ДОСТУПНА */}
                          {activeObj.scanned && activeObj.type === 'enemy' && (
-                             <button onClick={() => startCombat(activeObj.id)} className="py-3 bg-neon-red/20 border border-neon-red text-neon-red text-sm font-bold hover:bg-neon-red hover:text-black flex items-center justify-center gap-2">
-                                 <Skull size={16}/> ATTACK
+                             <button onClick={() => startCombat(activeObj.id)} className="py-3 bg-neon-red/20 border border-neon-red text-neon-red text-sm font-bold hover:bg-neon-red hover:text-black flex items-center justify-center gap-2 animate-pulse">
+                                 <Skull size={16}/> ENGAGE HOSTILE
                              </button>
                          )}
                           {activeObj.scanned && activeObj.type === 'container' && (
@@ -231,13 +208,16 @@ const getObjectColor = (type: string) => {
                                  <Box size={16}/> OPEN
                              </button>
                          )}
+                         {activeObj.scanned && activeObj.type === 'debris' && (
+                             <div className="py-3 text-gray-500 text-xs font-mono border border-gray-800">NO ACTIONS AVAILABLE</div>
+                         )}
                      </div>
                  </div>
              ) : null}
           </div>
       </div>
 
-      {/* === МОБІЛЬНЕ НИЖНЄ МЕНЮ === */}
+      {/* МОБІЛЬНЕ НИЖНЄ МЕНЮ */}
       <div className="md:hidden fixed bottom-0 inset-x-0 h-16 bg-space-950/90 border-t border-white/10 flex items-center justify-around z-30 px-2 backdrop-blur-lg">
           <button onClick={() => setMobileListOpen(!isMobileListOpen)} className={`flex flex-col items-center gap-1 p-2 w-16 ${isMobileListOpen ? 'text-neon-cyan' : 'text-gray-400'}`}>
               <List size={20} /> <span className="text-[9px]">LIST</span>
@@ -250,7 +230,7 @@ const getObjectColor = (type: string) => {
           </div>
       </div>
 
-      {/* === МОБІЛЬНИЙ СПИСОК (DRAWER) === */}
+      {/* МОБІЛЬНИЙ СПИСОК (DRAWER) */}
       {isMobileListOpen && (
           <div className="md:hidden absolute bottom-16 inset-x-0 bg-space-950/95 border-t border-neon-cyan/30 rounded-t-xl z-20 max-h-[50vh] overflow-y-auto p-3 shadow-[0_-5px_20px_rgba(0,0,0,0.5)]">
               <div className="flex justify-between items-center mb-3 sticky top-0 bg-space-950/95 py-2 border-b border-white/10">
@@ -271,7 +251,7 @@ const getObjectColor = (type: string) => {
           </div>
       )}
 
-      {/* === ДЕСКТОПНИЙ САЙДБАР === */}
+      {/* ДЕСКТОПНИЙ САЙДБАР */}
       <div className={`hidden md:flex glass-panel border-l border-neon-cyan/30 flex-col z-20 bg-space-950/90 backdrop-blur-md transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-20' : 'w-80'}`}>
           <div className={`p-4 border-b flex items-center ${inCombat ? 'border-neon-red/50 bg-neon-red/10' : 'border-white/10'}`}>
               <button onClick={() => setSidebarCollapsed(!isSidebarCollapsed)} className="mr-2 text-neon-cyan hover:text-white transition-colors">
