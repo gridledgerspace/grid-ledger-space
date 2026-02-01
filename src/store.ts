@@ -172,6 +172,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   scanCurrentSector: async () => {
     const { currentSector, userId } = get()
+    // Скидаємо все при вході в новий сектор
     set({ inCombat: false, combatLog: [], currentEventId: null })
     get().updatePresence()
 
@@ -208,7 +209,8 @@ export const useGameStore = create<GameState>((set, get) => ({
             enemyCount = gen.enemies
         } else {
             currentRes = { iron: sectorData.iron_amount, gold: sectorData.gold_amount, darkMatter: sectorData.dark_matter_amount }
-            enemyCount = sectorData.enemy_count
+            // 🔥 ВИПРАВЛЕННЯ: Захист від null/undefined
+            enemyCount = sectorData.enemy_count || 0 
         }
     } else {
         const gen = generateSectorContent(currentSector)
@@ -237,13 +239,18 @@ export const useGameStore = create<GameState>((set, get) => ({
         })
     }
     
+    // Генерація ворогів
     for (let i = 0; i < enemyCount; i++) {
         objects.push({ id: `enemy-${i}-${Date.now()}`, type: 'enemy', distance: 2500 + (i * 500), scanned: true, enemyLevel: 1 })
     }
     
-    if (enemyCount > 0) {
+    // 🔥 ГОЛОВНЕ ВИПРАВЛЕННЯ БАГУ:
+    // Перевіряємо не змінну enemyCount, а РЕАЛЬНУ кількість ворогів у масиві objects
+    const actualEnemies = objects.filter(o => o.type === 'enemy').length
+
+    if (actualEnemies > 0) {
         set({ 
-            combatLog: [`> WARNING: HOSTILE SCAN DETECTED!`, `> ENEMIES IN SECTOR: ${enemyCount}`],
+            combatLog: [`> WARNING: HOSTILE SCAN DETECTED!`, `> ENEMIES IN SECTOR: ${actualEnemies}`],
             currentEventId: 'hostile_scan' 
         }) 
     }
