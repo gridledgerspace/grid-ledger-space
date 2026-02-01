@@ -10,12 +10,12 @@ import {
     ChevronRight, ChevronLeft, Target, Menu, X, List, Rocket
 } from 'lucide-react'
 
-// === ДВИГУН РУХУ ===
+// === ДВИГУН РУХУ (Фізика польоту) ===
 function GameLoop() {
   const { inCombat, status } = useGameStore()
 
   useFrame((_state, delta) => {
-    // Якщо бій або видобуток - стоїмо на місці
+    // Стоїмо, якщо бій або копаємо
     if (inCombat || status === 'mining') return
 
     const store = useGameStore.getState()
@@ -23,30 +23,84 @@ function GameLoop() {
     
     if (objects.length === 0) return
 
-    // Працюємо ТІЛЬКИ з першим об'єктом (ціллю), бо інших ми приховали
-    const target = objects[0] 
+    const target = objects[0]
     
-    // === АНІМАЦІЯ ПІДЛЬОТУ ===
-    // Чим більша дистанція, тим швидше летимо. Це створює ефект "ривка".
-    // Math.max(200...) гарантує, що біля цілі ми не повземо занадто повільно.
-    const approachSpeed = Math.max(200, target.distance * 2.5) * delta
+    // --- 1. ШВИДКІСТЬ ПІДЛЬОТУ ДО ЦІЛІ ---
+    // Чим далі ціль, тим швидше летимо (ефект Варпу)
+    // Якщо 5000 км -> швидкість 10000 км/с (миттєвий ривок)
+    // Якщо 500 км -> швидкість 1000 км/с
+    // Якщо 250 км -> швидкість 200 км/с (м'яка посадка)
+    let approachSpeed = target.distance * 2.0 * delta
+    
+    // Обмеження, щоб не летіти надто повільно в кінці
+    if (approachSpeed < 100 * delta) approachSpeed = 100 * delta
 
-    if (target.distance > 200) { 
-        // Розраховуємо нову дистанцію
-        const newDist = Math.max(200, target.distance - approachSpeed)
+    // --- 2. ШВИДКІСТЬ ВІДДАЛЕННЯ ФОНУ ---
+    // Фон має відлітати швидко, щоб створити ефект руху
+    const backgroundSpeed = approachSpeed * 0.8 
+
+    let hasChanges = false
+
+    const newObjects = objects.map((obj, index) => {
+        // === ЦІЛЬ (Ми летимо ДО неї) ===
+        if (index === 0) {
+            if (obj.distance > 200) { // Зупинка на 200 км
+                const newDist = Math.max(200, obj.distance - approachSpeed)
+                
+                if (Math.abs(newDist - obj.distance) > 0.1) {
+                    hasChanges = true
+                    return { ...obj, distance: newDist }
+                }
+            }
+            return obj
+        } 
         
-        // Оновлюємо стейт, тільки якщо є помітна зміна (оптимізація)
-        if (Math.abs(newDist - target.distance) > 0.1) {
-            // Клонуємо масив і оновлюємо тільки ціль (індекс 0)
-            const newObjects = [...objects]
-            newObjects[0] = { ...target, distance: newDist }
-            
-            useGameStore.setState({ localObjects: newObjects })
+        // === ФОН (Ми летимо ВІД них) ===
+        else {
+            // Вони віддаляються, поки не стануть дуже далеко (наприклад 50 000 км)
+            if (obj.distance < 50000) {
+                const newDist = obj.distance + backgroundSpeed
+                
+                if (Math.abs(newDist - obj.distance) > 0.1) {
+                    hasChanges = true
+                    return { ...obj, distance: newDist }
+                }
+            }
+            return obj
         }
+    })
+
+    if (hasChanges) {
+        useGameStore.setState({ localObjects: newObjects })
     }
   })
 
   return null
+}
+
+// Компонент, який рухає 3D модель відповідно до дистанції
+function ActiveObjectVisual({ object, color }: { object: any, color: string }) {
+    const groupRef = useRef<any>(null)
+
+    useFrame(() => {
+        if (groupRef.current) {
+            // --- КОНВЕРТАЦІЯ ДИСТАНЦІЇ В 3D КООРДИНАТИ ---
+            // 200 км (впритул) -> Z = 0
+            // 5000 км (далеко) -> Z = -50
+            // Формула: -(distance - 200) / 100
+            // Ділимо на 100, щоб масштабувати кілометри в одиниці ThreeJS
+            const targetZ = -(object.distance - 200) / 50
+            
+            // Плавно інтерполюємо позицію (Lerp) для м'якості кадру
+            groupRef.current.position.z += (targetZ - groupRef.current.position.z) * 0.1
+        }
+    })
+
+    return (
+        <group ref={groupRef}>
+            <Object3D type={object.type} color={color} />
+        </group>
+    )
 }
 
 export default function SpaceView() {
@@ -63,12 +117,9 @@ export default function SpaceView() {
   
   const logEndRef = useRef<HTMLDivElement>(null)
   
-  // Беремо перший об'єкт зі стору (він завжди активний завдяки handleSelect)
   const activeObj = localObjects[0]
 
-  // === АВТО-ВИБІР ===
   useEffect(() => {
-      // Якщо завантажились об'єкти, але жоден не обраний -> обираємо перший
       if (localObjects.length > 0 && !selectedId) {
           setSelectedId(localObjects[0].id)
       }
@@ -78,20 +129,16 @@ export default function SpaceView() {
       logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [combatLog])
 
-  // === ОБРОБКА ВИБОРУ ОБ'ЄКТА ===
   const handleSelect = (id: string) => {
-    // Якщо клікнули на вже активний - ігноруємо
-    if (activeObj && id === activeObj.id) return
-    
+    if (id === selectedId) return
     setIsSwitching(true)
     setSelectedId(id)
     
-    // 🔥 ГОЛОВНЕ ВИПРАВЛЕННЯ:
-    // Ми фізично переміщуємо обраний об'єкт на початок масиву (index 0).
-    // Тепер GameLoop точно знатиме, до кого летіти.
+    // Сортуємо: Обраний стає першим [0]. 
+    // GameLoop почне його наближати, а старий [0] стане фоном і почне віддалятися.
     const currentObjects = useGameStore.getState().localObjects
     const newOrder = [...currentObjects].sort((a, b) => {
-        if (a.id === id) return -1 // Обраний йде вгору
+        if (a.id === id) return -1
         if (b.id === id) return 1
         return 0
     })
@@ -99,7 +146,7 @@ export default function SpaceView() {
     useGameStore.setState({ localObjects: newOrder })
 
     setMobileListOpen(false)
-    setTimeout(() => setIsSwitching(false), 600) // Трохи швидша анімація переходу
+    setTimeout(() => setIsSwitching(false), 500)
   }
 
   const getObjectColor = (type: string) => {
@@ -138,32 +185,32 @@ export default function SpaceView() {
             
             <GameLoop /> 
 
-            {/* Малюємо ТІЛЬКИ активний об'єкт */}
+            {/* ВІЗУАЛІЗАЦІЯ АКТИВНОГО ОБ'ЄКТА */}
             {activeObj && !isSwitching && activeObj.scanned && (
-                <Object3D type={activeObj.type} color={getObjectColor(activeObj.type)} />
+                // Використовуємо обгортку, яка рухає об'єкт по осі Z
+                <ActiveObjectVisual 
+                    key={activeObj.id} // Важливо: зміна ключа скидає анімацію для нового об'єкта
+                    object={activeObj} 
+                    color={getObjectColor(activeObj.type)} 
+                />
             )}
             
-            {/* BackgroundSignals видалено, щоб прибрати зайві точки */}
+            {/* Фон прибрали, як ви просили */}
             
             <OrbitControls enableZoom={false} autoRotate autoRotateSpeed={inCombat ? 0.2 : 0.5} />
          </Canvas>
       </div>
 
-      {/* ЕКРАН ПЕРЕХОДУ (WARP EFFECT) */}
       {isSwitching && (
-          <div className="absolute inset-0 z-20 bg-black/60 backdrop-blur-md flex items-center justify-center animate-in fade-in duration-200">
-              <div className="flex flex-col items-center gap-2">
-                  <div className="text-neon-cyan font-mono text-xl animate-pulse tracking-[0.3em]">
-                      APPROACHING TARGET
-                  </div>
-                  <div className="text-xs text-gray-500 font-mono">CALCULATING VECTOR...</div>
+          <div className="absolute inset-0 z-20 bg-black/50 backdrop-blur-md flex items-center justify-center animate-in fade-in duration-200">
+              <div className="text-neon-cyan font-mono text-xl animate-pulse tracking-[0.3em]">
+                  CALCULATING APPROACH...
               </div>
           </div>
       )}
 
       {showStationMenu && <StationMenu onClose={() => setShowStationMenu(false)} />}
 
-      {/* HEADER */}
       <div className={`absolute top-0 left-0 right-0 z-10 pointer-events-none flex justify-center pt-6 transition-opacity duration-500 ${inCombat ? 'opacity-0' : 'opacity-100'}`}>
           <h1 className="text-lg md:text-2xl font-mono text-neon-cyan/70 font-bold tracking-widest bg-black/30 px-4 py-1 rounded-full backdrop-blur-sm border border-white/5">
               SEC {currentSector}
