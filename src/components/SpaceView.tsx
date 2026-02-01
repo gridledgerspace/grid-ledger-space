@@ -125,7 +125,13 @@ export default function SpaceView() {
         return 0
     })
     
-    useGameStore.setState({ localObjects: newOrder })
+    useGameStore.setState({ 
+        localObjects: newOrder,
+        status: 'space',       // <--- Примусовий запуск двигуна
+        currentEventId: null,  // <--- Закриваємо будь-які вікна
+        inCombat: false        // <--- Скасовуємо бій, якщо втікаємо до іншого об'єкта
+    })
+
     setMobileListOpen(false)
     setTimeout(() => setIsSwitching(false), 400)
   }

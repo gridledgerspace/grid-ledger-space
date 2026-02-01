@@ -39,7 +39,6 @@ const getDistance = (s1: string, s2: string) => {
 const generateSectorContent = (sectorId: string) => {
     const dist = getDistance('0:0', sectorId)
     
-    // Шанс 30%, що сектор буде порожнім (якщо ми не біля старту)
     const isEmpty = Math.random() > 0.7 && dist > 2; 
 
     let iron = 0, gold = 0, darkMatter = 0, enemies = 0
@@ -136,9 +135,6 @@ export const useGameStore = create<GameState>((set, get) => ({
   setUserId: (id) => set({ userId: id }),
   setTargetSector: (sector) => set({ targetSector: sector }),
 
-  // Просте закриття події, щоб прибрати оверлей
-  closeEvent: () => set({ currentEventId: null }),
-
   updatePresence: async () => {
       const { userId, currentSector } = get()
       if (!userId) return
@@ -176,7 +172,6 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   scanCurrentSector: async () => {
     const { currentSector, userId } = get()
-    // Скидаємо все при вході в новий сектор
     set({ inCombat: false, combatLog: [], currentEventId: null })
     get().updatePresence()
 
@@ -242,16 +237,13 @@ export const useGameStore = create<GameState>((set, get) => ({
         })
     }
     
-    // Генерація ворогів
     for (let i = 0; i < enemyCount; i++) {
         objects.push({ id: `enemy-${i}-${Date.now()}`, type: 'enemy', distance: 2500 + (i * 500), scanned: true, enemyLevel: 1 })
     }
     
-    // 🔥 1. ПУШ-СПОВІЩЕННЯ ПРИ ВХОДІ
     if (enemyCount > 0) {
         set({ 
             combatLog: [`> WARNING: HOSTILE SCAN DETECTED!`, `> ENEMIES IN SECTOR: ${enemyCount}`],
-            // Активуємо червоне вікно попередження
             currentEventId: 'hostile_scan' 
         }) 
     }
@@ -311,47 +303,35 @@ export const useGameStore = create<GameState>((set, get) => ({
       set(state => ({ sectorDetails: { ...state.sectorDetails, ...newDetails } }))
   },
 
-  // 🔥 2. ЗАСІДКА (AMBUSH) ТА СОРТУВАННЯ КАМЕРИ
   mineObject: (id) => {
       const { localObjects } = get()
-      
-      // Перевіряємо наявність ворогів
       const enemy = localObjects.find(o => o.type === 'enemy')
       
       if (enemy) {
-          // --- СЦЕНАРІЙ ЗАСІДКИ ---
-          
-          // А. Переміщуємо ВОРОГА на початок масиву (щоб камера полетіла до нього)
           const newOrder = [...localObjects].sort((a, b) => {
               if (a.id === enemy.id) return -1
               if (b.id === enemy.id) return 1
               return 0
           })
 
-          // Б. Вмикаємо напис AMBUSH та оновлюємо об'єкти
           set({ 
               localObjects: newOrder,
               currentEventId: 'ambush', 
               combatLog: ['> ALERT: MINING SENSORS ATTRACTED HOSTILES!']
           })
 
-          // В. Затримка 2.5с перед стартом бою (щоб гравець побачив ворога)
           setTimeout(() => {
               get().startCombat(enemy.id)
-              set({ currentEventId: null }) // Прибираємо напис, бо починається бій
+              set({ currentEventId: null })
           }, 2500)
 
       } else {
-          // --- ЗВИЧАЙНИЙ ВИДОБУТОК ---
-          
-          // А. Переміщуємо РУДУ на початок масиву (щоб камера полетіла до неї)
           const newOrder = [...localObjects].sort((a, b) => {
               if (a.id === id) return -1
               if (b.id === id) return 1
               return 0
           })
 
-          // Б. Відкриваємо вікно майнінгу
           set({ 
               status: 'mining', 
               currentEventId: id,
@@ -480,5 +460,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       newObjects.splice(idx, 1)
       set({ credits: newCredits, cargo: newCargo, localObjects: newObjects, currentEventId: null })
       alert(msg)
-  }
+  },
+
+  // 🔥 ЄДИНЕ ПРАВИЛЬНЕ ВИЗНАЧЕННЯ:
+  closeEvent: () => set({ status: 'space', currentEventId: null })
 }))
