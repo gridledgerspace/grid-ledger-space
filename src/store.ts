@@ -36,11 +36,9 @@ const getDistance = (s1: string, s2: string) => {
     return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2))
 }
 
-// 🔥 ВИПРАВЛЕННЯ 3: Більш різноманітна генерація
 const generateSectorContent = (sectorId: string) => {
     const dist = getDistance('0:0', sectorId)
     
-    // Шанс 30%, що сектор буде порожнім (лише сміття)
     const isEmpty = Math.random() > 0.7 && dist > 2; 
 
     let iron = 0, gold = 0, darkMatter = 0, enemies = 0
@@ -174,7 +172,6 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   scanCurrentSector: async () => {
     const { currentSector, userId } = get()
-    // 🔥 ВАЖЛИВО: Скидаємо inCombat в false при вході в сектор
     set({ inCombat: false, combatLog: [], currentEventId: null })
     get().updatePresence()
 
@@ -240,15 +237,13 @@ export const useGameStore = create<GameState>((set, get) => ({
         })
     }
     
-    // 🔥 ГЕНЕРАЦІЯ ВОРОГІВ
     for (let i = 0; i < enemyCount; i++) {
         objects.push({ id: `enemy-${i}-${Date.now()}`, type: 'enemy', distance: 2500 + (i * 500), scanned: true, enemyLevel: 1 })
     }
     
-    // 🔥 ВИПРАВЛЕННЯ БАГУ 2:
-    // Якщо є вороги, ми просто додаємо лог, але НЕ вмикаємо inCombat: true
+    // 🔥 ОНОВЛЕННЯ 1: Сповіщення про сканування
     if (enemyCount > 0) {
-        set({ combatLog: [`> WARNING: ${enemyCount} HOSTILE SIGNATURES DETECTED!`] }) 
+        set({ combatLog: [`> WARNING: HOSTILE SCAN DETECTED!`, `> ENEMIES IN SECTOR: ${enemyCount}`] }) 
     }
 
     let asteroidIndex = 0
@@ -306,7 +301,24 @@ export const useGameStore = create<GameState>((set, get) => ({
       set(state => ({ sectorDetails: { ...state.sectorDetails, ...newDetails } }))
   },
 
-  mineObject: (id) => set({ status: 'mining', currentEventId: id }),
+  // 🔥 ОНОВЛЕННЯ 2: Пастка для шахтаря
+  mineObject: (id) => {
+      const { localObjects } = get()
+      
+      // Перевіряємо, чи є вороги
+      const enemy = localObjects.find(o => o.type === 'enemy')
+      
+      if (enemy) {
+          // Якщо є ворог - починаємо бій замість копання!
+          get().startCombat(enemy.id)
+          set(state => ({
+              combatLog: [`> ALERT: MINING ACTIVITY DETECTED BY HOSTILES!`, ...state.combatLog]
+          }))
+      } else {
+          // Якщо чисто - копаємо
+          set({ status: 'mining', currentEventId: id })
+      }
+  },
 
   extractResource: async () => {
     get().updatePresence()
@@ -431,4 +443,4 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   closeEvent: () => set({ status: 'space', currentEventId: null })
-}))     
+}))
