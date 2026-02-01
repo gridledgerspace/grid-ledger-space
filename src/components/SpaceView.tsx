@@ -13,14 +13,55 @@ import {
 // === ДВИГУН РУХУ ===
 function GameLoop() {
   const { inCombat, status } = useGameStore()
-  
-  // Прибираємо (_state, delta), оскільки ми їх поки не використовуємо
-  useFrame(() => {
+
+  useFrame((_state, delta) => {
+    // Якщо бій або видобуток - стоїмо на місці
     if (inCombat || status === 'mining') return
+
+    const store = useGameStore.getState()
+    const objects = store.localObjects
     
-    // Тут була логіка руху об'єктів. 
-    // Ми її тимчасово прибрали, щоб уникнути багів з інтерфейсом.
-    // У майбутньому тут можна буде додати анімацію обертання або патрулювання.
+    if (objects.length === 0) return
+
+    let hasChanges = false
+
+    // Проходимо по всіх об'єктах і оновлюємо їх дистанцію
+    const newObjects = objects.map((obj, index) => {
+        // --- 1. АКТИВНИЙ ОБ'ЄКТ (До якого летимо) ---
+        if (index === 0) {
+            // Мінімальна дистанція зближення - 200 км
+            if (obj.distance > 200) {
+                // Швидкість залежить від відстані (чим ближче - тим повільніше, ефект гальмування)
+                // Math.max(50, ...) гарантує, що ми не зупинимось повністю, якщо дуже близько
+                const approachSpeed = Math.max(50, obj.distance * 0.5) * delta
+                
+                const newDist = Math.max(200, obj.distance - approachSpeed)
+                
+                // Оновлюємо тільки якщо є суттєва зміна
+                if (Math.abs(newDist - obj.distance) > 0.1) {
+                    hasChanges = true
+                    return { ...obj, distance: newDist }
+                }
+            }
+            return obj
+        } 
+        
+        // --- 2. ІНШІ ОБ'ЄКТИ (Які пролітаємо повз) ---
+        else {
+            // Вони віддаляються, бо ми летимо до цілі
+            if (obj.distance < 15000) {
+                const flyAwaySpeed = 200 * delta
+                hasChanges = true
+                return { ...obj, distance: obj.distance + flyAwaySpeed }
+            }
+            return obj
+        }
+    })
+
+    // Оновлюємо стан, тільки якщо координати змінились (оптимізація React)
+    if (hasChanges) {
+        useGameStore.setState({ localObjects: newObjects })
+    }
   })
 
   return null
