@@ -10,35 +10,39 @@ import {
     ChevronRight, ChevronLeft, Target, Menu, X, List, Rocket
 } from 'lucide-react'
 
-// === ДВИГУН РУХУ ===
+// === ДВИГУН РУХУ (Відновлений) ===
 function GameLoop() {
   const { inCombat, status } = useGameStore()
 
   useFrame((_state, delta) => {
-    // Якщо бій або видобуток - стоїмо на місці
+    // Якщо йде бій або видобуток ресурсів - зупиняємо рух
     if (inCombat || status === 'mining') return
 
     const store = useGameStore.getState()
     const objects = store.localObjects
     
+    // Якщо об'єктів немає, нічого не робимо
     if (objects.length === 0) return
+
+    // Беремо активну ціль (вона завжди перша у списку після сортування)
+    const target = objects[0]
+    
+    // Розраховуємо швидкість зближення. 
+    // Формула: (Дистанція * 2.0) дає ефект, що чим далі ми, тим швидше летимо.
+    // Math.max(500, ...) гарантує, що ми не будемо повзти як черепаха, коли вже близько.
+    const approachSpeed = Math.max(510, target.distance * 2.0) * delta
 
     let hasChanges = false
 
-    // Проходимо по всіх об'єктах і оновлюємо їх дистанцію
     const newObjects = objects.map((obj, index) => {
-        // --- 1. АКТИВНИЙ ОБ'ЄКТ (До якого летимо) ---
+        // --- 1. ЦІЛЬ (Ми летимо ДО неї) ---
         if (index === 0) {
-            // Мінімальна дистанція зближення - 200 км
+            // Зупиняємось за 200 км від цілі
             if (obj.distance > 200) {
-                // Швидкість залежить від відстані (чим ближче - тим повільніше, ефект гальмування)
-                // Math.max(50, ...) гарантує, що ми не зупинимось повністю, якщо дуже близько
-                const approachSpeed = Math.max(50, obj.distance * 0.5) * delta
-                
                 const newDist = Math.max(200, obj.distance - approachSpeed)
                 
-                // Оновлюємо тільки якщо є суттєва зміна
-                if (Math.abs(newDist - obj.distance) > 0.1) {
+                // Оновлюємо, тільки якщо дистанція дійсно змінилась (оптимізація)
+                if (Math.floor(newDist) !== Math.floor(obj.distance)) {
                     hasChanges = true
                     return { ...obj, distance: newDist }
                 }
@@ -46,19 +50,24 @@ function GameLoop() {
             return obj
         } 
         
-        // --- 2. ІНШІ ОБ'ЄКТИ (Які пролітаємо повз) ---
+        // --- 2. ІНШІ ОБ'ЄКТИ (Ми летимо ПОВЗ них) ---
         else {
-            // Вони віддаляються, бо ми летимо до цілі
-            if (obj.distance < 15000) {
-                const flyAwaySpeed = 200 * delta
-                hasChanges = true
-                return { ...obj, distance: obj.distance + flyAwaySpeed }
+            const flyAwaySpeed = approachSpeed * 0.5 
+            
+            // Якщо об'єкт ще не надто далеко, віддаляємо його
+            if (obj.distance < 11000) {
+                const newDist = obj.distance + flyAwaySpeed
+                
+                if (Math.floor(newDist) !== Math.floor(obj.distance)) {
+                    hasChanges = true
+                    return { ...obj, distance: newDist }
+                }
             }
             return obj
         }
     })
 
-    // Оновлюємо стан, тільки якщо координати змінились (оптимізація React)
+    // Записуємо нові координати в Store, щоб React оновив цифри на екрані
     if (hasChanges) {
         useGameStore.setState({ localObjects: newObjects })
     }
