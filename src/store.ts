@@ -23,6 +23,7 @@ export interface SectorDetail {
     lastUpdated: number
 }
 
+// === ДОПОМІЖНІ ФУНКЦІЇ ===
 export const getGridDistance = (s1: string, s2: string) => {
     if (!s1 || !s2) return 0
     const [x1, y1] = s1.split(':').map(Number)
@@ -39,6 +40,7 @@ const getDistance = (s1: string, s2: string) => {
 const generateSectorContent = (sectorId: string) => {
     const dist = getDistance('0:0', sectorId)
     
+    // Шанс 30%, що сектор буде порожнім (якщо ми не біля старту)
     const isEmpty = Math.random() > 0.7 && dist > 2; 
 
     let iron = 0, gold = 0, darkMatter = 0, enemies = 0
@@ -135,6 +137,9 @@ export const useGameStore = create<GameState>((set, get) => ({
   setUserId: (id) => set({ userId: id }),
   setTargetSector: (sector) => set({ targetSector: sector }),
 
+  // 🛠️ ВИПРАВЛЕНО: Функція закриття події
+  closeEvent: () => set({ status: 'space', currentEventId: null }),
+
   updatePresence: async () => {
       const { userId, currentSector } = get()
       if (!userId) return
@@ -172,10 +177,11 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   scanCurrentSector: async () => {
     const { currentSector, userId } = get()
-    // Скидаємо все при вході в новий сектор
+    // Скидаємо все при вході
     set({ inCombat: false, combatLog: [], currentEventId: null })
     get().updatePresence()
 
+    // Станція Альфа (Старт)
     if (currentSector === '0:0') {
       set({
         localObjects: [{ id: 'station-alpha', type: 'station', distance: 2000, scanned: true }],
@@ -192,6 +198,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     let enemyCount = 0
 
     if (sectorData) {
+        // Логіка регенерації ресурсів
         let isRegenerated = false
         if (sectorData.last_depleted_at) {
             const depTime = new Date(sectorData.last_depleted_at).getTime()
@@ -209,14 +216,20 @@ export const useGameStore = create<GameState>((set, get) => ({
             enemyCount = gen.enemies
         } else {
             currentRes = { iron: sectorData.iron_amount, gold: sectorData.gold_amount, darkMatter: sectorData.dark_matter_amount }
-            // 🔥 ВИПРАВЛЕННЯ: Захист від null/undefined
-            enemyCount = sectorData.enemy_count || 0 
+            enemyCount = sectorData.enemy_count || 0
         }
     } else {
+        // 🔥 ВИПРАВЛЕНО ТУТ: Використовуємо UPSERT замість UPDATE для нових секторів
         const gen = generateSectorContent(currentSector)
-        await supabase.from('sectors').update({
-            iron_amount: gen.iron, gold_amount: gen.gold, dark_matter_amount: gen.darkMatter, enemy_count: gen.enemies
-        }).eq('id', currentSector)
+        await supabase.from('sectors').upsert({
+            id: currentSector,
+            iron_amount: gen.iron, 
+            gold_amount: gen.gold, 
+            dark_matter_amount: gen.darkMatter, 
+            enemy_count: gen.enemies,
+            x: Number(currentSector.split(':')[0]), // Додаємо координати для коректності
+            y: Number(currentSector.split(':')[1])
+        })
         currentRes = { iron: gen.iron, gold: gen.gold, darkMatter: gen.darkMatter }
         enemyCount = gen.enemies
     }
@@ -225,6 +238,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     const objects: SpaceObject[] = []
 
+    // Додаємо інших гравців
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
     const { data: players } = await supabase
         .from('profiles').select('id').eq('current_sector', currentSector)
@@ -239,15 +253,13 @@ export const useGameStore = create<GameState>((set, get) => ({
         })
     }
     
-    // Генерація ворогів
+    // Додаємо ворогів
     for (let i = 0; i < enemyCount; i++) {
         objects.push({ id: `enemy-${i}-${Date.now()}`, type: 'enemy', distance: 2500 + (i * 500), scanned: true, enemyLevel: 1 })
     }
     
-    // 🔥 ГОЛОВНЕ ВИПРАВЛЕННЯ БАГУ:
-    // Перевіряємо не змінну enemyCount, а РЕАЛЬНУ кількість ворогів у масиві objects
+    // 🔥 ВИПРАВЛЕНО: Перевіряємо фактичну наявність ворогів у масиві
     const actualEnemies = objects.filter(o => o.type === 'enemy').length
-
     if (actualEnemies > 0) {
         set({ 
             combatLog: [`> WARNING: HOSTILE SCAN DETECTED!`, `> ENEMIES IN SECTOR: ${actualEnemies}`],
@@ -255,6 +267,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         }) 
     }
 
+    // Додаємо астероїди
     let asteroidIndex = 0
     if (currentRes.iron > 0) {
         const chunks = currentRes.iron > 300 ? 2 : 1
@@ -315,6 +328,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       const enemy = localObjects.find(o => o.type === 'enemy')
       
       if (enemy) {
+          // Засідка!
           const newOrder = [...localObjects].sort((a, b) => {
               if (a.id === enemy.id) return -1
               if (b.id === enemy.id) return 1
@@ -333,6 +347,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           }, 2500)
 
       } else {
+          // Нормальний видобуток
           const newOrder = [...localObjects].sort((a, b) => {
               if (a.id === id) return -1
               if (b.id === id) return 1
@@ -467,8 +482,5 @@ export const useGameStore = create<GameState>((set, get) => ({
       newObjects.splice(idx, 1)
       set({ credits: newCredits, cargo: newCargo, localObjects: newObjects, currentEventId: null })
       alert(msg)
-  },
-
-  // 🔥 ЄДИНЕ ПРАВИЛЬНЕ ВИЗНАЧЕННЯ:
-  closeEvent: () => set({ status: 'space', currentEventId: null })
+  }
 }))
