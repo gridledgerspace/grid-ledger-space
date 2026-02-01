@@ -15,86 +15,38 @@ function GameLoop() {
   const { inCombat, status } = useGameStore()
 
   useFrame((_state, delta) => {
+    // Якщо бій або видобуток - стоїмо на місці
     if (inCombat || status === 'mining') return
 
     const store = useGameStore.getState()
-    const objects = store.localObjects // Беремо прямий масив зі стору
+    const objects = store.localObjects
     
     if (objects.length === 0) return
 
-    // Ціль - це ЗАВЖДИ перший елемент масиву
+    // Працюємо ТІЛЬКИ з першим об'єктом (ціллю), бо інших ми приховали
     const target = objects[0] 
     
-    // --- НАЛАШТУВАННЯ ШВИДКОСТІ ---
-    // 1500 км/с - це швидко, політ на 3000 км займе 2 сек.
-    let currentSpeed = 1500 * delta 
-    
-    // Гальмування біля цілі
-    if (target.distance < 600) {
-        // Плавне сповільнення, але не менше 100 км/с, щоб не "зависнути" вічно
-        currentSpeed = Math.max(100, target.distance * 2.0) * delta
-    }
+    // === АНІМАЦІЯ ПІДЛЬОТУ ===
+    // Чим більша дистанція, тим швидше летимо. Це створює ефект "ривка".
+    // Math.max(200...) гарантує, що біля цілі ми не повземо занадто повільно.
+    const approachSpeed = Math.max(200, target.distance * 2.5) * delta
 
-    let hasChanges = false
-
-    const newObjects = objects.map((obj, index) => {
-        // 1. ЦІЛЬ (index 0) - Наближаємось
-        if (index === 0) {
-            if (obj.distance > 200) { 
-                const newDist = Math.max(200, obj.distance - currentSpeed)
-                if (Math.abs(newDist - obj.distance) > 0.1) {
-                    hasChanges = true
-                    return { ...obj, distance: newDist }
-                }
-            }
-            return obj
-        } 
+    if (target.distance > 200) { 
+        // Розраховуємо нову дистанцію
+        const newDist = Math.max(200, target.distance - approachSpeed)
         
-        // 2. ФОН (index > 0) - Віддаляємось
-        else {
-            if (obj.distance < 25000) {
-                // Вони летять назад повільніше (ефект паралаксу)
-                const driftSpeed = 300 * delta 
-                const newDist = obj.distance + driftSpeed
-                
-                if (Math.abs(newDist - obj.distance) > 0.1) {
-                    hasChanges = true
-                    return { ...obj, distance: newDist }
-                }
-            }
-            return obj
+        // Оновлюємо стейт, тільки якщо є помітна зміна (оптимізація)
+        if (Math.abs(newDist - target.distance) > 0.1) {
+            // Клонуємо масив і оновлюємо тільки ціль (індекс 0)
+            const newObjects = [...objects]
+            newObjects[0] = { ...target, distance: newDist }
+            
+            useGameStore.setState({ localObjects: newObjects })
         }
-    })
-
-    if (hasChanges) {
-        useGameStore.setState({ localObjects: newObjects })
     }
   })
 
   return null
-}
-
-function BackgroundSignals({ objects }: { objects: any[] }) {
-    // Малюємо всі об'єкти, крім першого (бо перший - це велика 3D модель)
-    const others = objects.slice(1)
-    return (
-        <group>
-            {others.map((obj, i) => {
-                const angle = (i / others.length) * Math.PI * 2
-                // Візуально розміщуємо їх далеко
-                const visualDist = Math.min(60, 20 + (obj.distance / 500))
-                const x = Math.cos(angle) * visualDist
-                const z = Math.sin(angle) * visualDist
-                const y = Math.sin(angle * 3) * (visualDist / 5)
-                return (
-                    <mesh key={obj.id} position={[x, y, z]}>
-                        <sphereGeometry args={[0.2, 4, 4]} />
-                        <meshBasicMaterial color="#666" wireframe />
-                    </mesh>
-                )
-            })}
-        </group>
-    )
 }
 
 export default function SpaceView() {
@@ -111,13 +63,13 @@ export default function SpaceView() {
   
   const logEndRef = useRef<HTMLDivElement>(null)
   
-  // Активний об'єкт - завжди перший у списку стору
+  // Беремо перший об'єкт зі стору (він завжди активний завдяки handleSelect)
   const activeObj = localObjects[0]
 
-  // === АВТО-ВИБІР ПРИ СТАРТІ ===
+  // === АВТО-ВИБІР ===
   useEffect(() => {
+      // Якщо завантажились об'єкти, але жоден не обраний -> обираємо перший
       if (localObjects.length > 0 && !selectedId) {
-          // Завжди вибираємо перший об'єкт зі списку
           setSelectedId(localObjects[0].id)
       }
   }, [localObjects])
@@ -126,18 +78,20 @@ export default function SpaceView() {
       logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [combatLog])
 
-  // 🔥 ГОЛОВНЕ ВИПРАВЛЕННЯ: Сортування стору при кліку 🔥
+  // === ОБРОБКА ВИБОРУ ОБ'ЄКТА ===
   const handleSelect = (id: string) => {
-    if (id === selectedId) return
+    // Якщо клікнули на вже активний - ігноруємо
+    if (activeObj && id === activeObj.id) return
     
     setIsSwitching(true)
     setSelectedId(id)
     
-    // Ми беремо поточний список і ПЕРЕМІЩУЄМО обраний об'єкт на початок масиву (index 0).
-    // Тепер GameLoop побачить його першим і почне наближати.
+    // 🔥 ГОЛОВНЕ ВИПРАВЛЕННЯ:
+    // Ми фізично переміщуємо обраний об'єкт на початок масиву (index 0).
+    // Тепер GameLoop точно знатиме, до кого летіти.
     const currentObjects = useGameStore.getState().localObjects
     const newOrder = [...currentObjects].sort((a, b) => {
-        if (a.id === id) return -1
+        if (a.id === id) return -1 // Обраний йде вгору
         if (b.id === id) return 1
         return 0
     })
@@ -145,7 +99,7 @@ export default function SpaceView() {
     useGameStore.setState({ localObjects: newOrder })
 
     setMobileListOpen(false)
-    setTimeout(() => setIsSwitching(false), 800)
+    setTimeout(() => setIsSwitching(false), 600) // Трохи швидша анімація переходу
   }
 
   const getObjectColor = (type: string) => {
@@ -184,29 +138,32 @@ export default function SpaceView() {
             
             <GameLoop /> 
 
-            {/* Малюємо тільки активний об'єкт (індекс 0) як велику 3D модель */}
+            {/* Малюємо ТІЛЬКИ активний об'єкт */}
             {activeObj && !isSwitching && activeObj.scanned && (
                 <Object3D type={activeObj.type} color={getObjectColor(activeObj.type)} />
             )}
             
-            {/* Всі інші - це маленькі точки на фоні */}
-            <BackgroundSignals objects={localObjects} />
+            {/* BackgroundSignals видалено, щоб прибрати зайві точки */}
             
             <OrbitControls enableZoom={false} autoRotate autoRotateSpeed={inCombat ? 0.2 : 0.5} />
          </Canvas>
       </div>
 
-      {/* ЕФЕКТ ПЕРЕМИКАННЯ */}
+      {/* ЕКРАН ПЕРЕХОДУ (WARP EFFECT) */}
       {isSwitching && (
-          <div className="absolute inset-0 z-20 bg-black/40 backdrop-blur-md flex items-center justify-center animate-in fade-in duration-300">
-              <div className="text-neon-cyan font-mono text-lg md:text-xl animate-pulse tracking-[0.3em]">
-                  REALIGNING SENSORS...
+          <div className="absolute inset-0 z-20 bg-black/60 backdrop-blur-md flex items-center justify-center animate-in fade-in duration-200">
+              <div className="flex flex-col items-center gap-2">
+                  <div className="text-neon-cyan font-mono text-xl animate-pulse tracking-[0.3em]">
+                      APPROACHING TARGET
+                  </div>
+                  <div className="text-xs text-gray-500 font-mono">CALCULATING VECTOR...</div>
               </div>
           </div>
       )}
 
       {showStationMenu && <StationMenu onClose={() => setShowStationMenu(false)} />}
 
+      {/* HEADER */}
       <div className={`absolute top-0 left-0 right-0 z-10 pointer-events-none flex justify-center pt-6 transition-opacity duration-500 ${inCombat ? 'opacity-0' : 'opacity-100'}`}>
           <h1 className="text-lg md:text-2xl font-mono text-neon-cyan/70 font-bold tracking-widest bg-black/30 px-4 py-1 rounded-full backdrop-blur-sm border border-white/5">
               SEC {currentSector}
@@ -275,7 +232,7 @@ export default function SpaceView() {
           </div>
       </div>
 
-      {/* МОБІЛЬНЕ МЕНЮ */}
+      {/* МОБІЛЬНЕ НИЖНЄ МЕНЮ */}
       <div className="md:hidden fixed bottom-0 inset-x-0 h-16 bg-space-950/90 border-t border-white/10 flex items-center justify-around z-30 px-2 backdrop-blur-lg">
           <button onClick={() => setMobileListOpen(!isMobileListOpen)} className={`flex flex-col items-center gap-1 p-2 w-16 ${isMobileListOpen ? 'text-neon-cyan' : 'text-gray-400'}`}>
               <List size={20} /> <span className="text-[9px]">LIST</span>
@@ -288,7 +245,7 @@ export default function SpaceView() {
           </div>
       </div>
 
-      {/* СПИСОК ОБ'ЄКТІВ */}
+      {/* МОБІЛЬНИЙ СПИСОК (DRAWER) */}
       {isMobileListOpen && (
           <div className="md:hidden absolute bottom-16 inset-x-0 bg-space-950/95 border-t border-neon-cyan/30 rounded-t-xl z-20 max-h-[50vh] overflow-y-auto p-3 shadow-[0_-5px_20px_rgba(0,0,0,0.5)]">
               <div className="flex justify-between items-center mb-3 sticky top-0 bg-space-950/95 py-2 border-b border-white/10">
