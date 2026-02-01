@@ -24,20 +24,16 @@ function GameLoop() {
 
     const target = objects[0]
     
-    // Розрахунок швидкості підльоту (Варп-ефект)
-    // Чим далі об'єкт, тим швидше ми летимо.
+    // Анімація підльоту
     let approachSpeed = target.distance * 2.5 * delta
-    
-    // Мінімальна швидкість (щоб не повзти в кінці)
     if (approachSpeed < 150 * delta) approachSpeed = 150 * delta
 
-    // Фон відлітає трохи повільніше
     const backgroundSpeed = approachSpeed * 0.5
 
     let hasChanges = false
 
     const newObjects = objects.map((obj, index) => {
-        // === ЦІЛЬ (Летимо ДО неї) ===
+        // === ЦІЛЬ ===
         if (index === 0) {
             if (obj.distance > 200) { 
                 const newDist = Math.max(200, obj.distance - approachSpeed)
@@ -49,7 +45,7 @@ function GameLoop() {
             return obj
         } 
         
-        // === ФОН (Летимо ВІД них) ===
+        // === ФОН ===
         else {
             if (obj.distance < 50000) {
                 const newDist = obj.distance + backgroundSpeed
@@ -70,26 +66,21 @@ function GameLoop() {
   return null
 }
 
-// === ВІЗУАЛІЗАЦІЯ З ПРАВИЛЬНИМ СТАРТОМ ===
+// === ВІЗУАЛІЗАЦІЯ ===
 function ActiveObjectVisual({ object, color }: { object: any, color: string }) {
     const groupRef = useRef<any>(null)
-
-    // 🔥 ВАЖЛИВО: Рахуємо стартову позицію відразу, щоб не було стрибка з 0
-    // Формула: (Дистанція - 200) / 50. 
-    // Наприклад: 5000 км -> Z = -96 (далеко)
-    // 200 км -> Z = 0 (перед камерою)
+    
+    // Розрахунок стартової позиції
     const initialZ = -(object.distance - 200) / 50
 
     useFrame(() => {
         if (groupRef.current) {
             const targetZ = -(object.distance - 200) / 50
-            // Плавне доведення позиції (щоб рух був м'яким)
             groupRef.current.position.z += (targetZ - groupRef.current.position.z) * 0.1
         }
     })
 
     return (
-        // Встановлюємо position відразу при рендері!
         <group ref={groupRef} position={[0, 0, initialZ]}>
             <Object3D type={object.type} color={color} />
         </group>
@@ -127,7 +118,6 @@ export default function SpaceView() {
     setIsSwitching(true)
     setSelectedId(id)
     
-    // Переміщуємо обраний об'єкт на початок масиву для двигуна
     const currentObjects = useGameStore.getState().localObjects
     const newOrder = [...currentObjects].sort((a, b) => {
         if (a.id === id) return -1
@@ -136,11 +126,32 @@ export default function SpaceView() {
     })
     
     useGameStore.setState({ localObjects: newOrder })
-
     setMobileListOpen(false)
-    
-    // Коротша пауза для динаміки
     setTimeout(() => setIsSwitching(false), 400)
+  }
+
+  // 🔥 НОВА ФУНКЦІЯ: Генерує гарні назви для об'єктів
+  const getObjectName = (obj: any) => {
+      if (!obj.scanned) return 'UNKNOWN SIGNAL'
+
+      if (obj.type === 'asteroid' && obj.data?.resource) {
+          return `${obj.data.resource.toUpperCase()} DEPOSIT`
+      }
+      
+      if (obj.type === 'enemy') {
+          const classes = ['SCOUT', 'INTERCEPTOR', 'FRIGATE', 'DREADNOUGHT']
+          const lvl = obj.enemyLevel || 1
+          // Обмежуємо індекс, щоб не вийти за межі масиву
+          const className = classes[Math.min(lvl - 1, classes.length - 1)]
+          return `MK-${lvl} ${className}`
+      }
+
+      if (obj.type === 'station') return 'TRADING STATION'
+      if (obj.type === 'container') return 'LOST CARGO'
+      if (obj.type === 'player') return obj.playerName || 'UNKNOWN PILOT'
+      if (obj.type === 'debris') return 'SPACE DEBRIS'
+
+      return obj.type.toUpperCase()
   }
 
   const getObjectColor = (type: string) => {
@@ -179,10 +190,7 @@ export default function SpaceView() {
             
             <GameLoop /> 
 
-            {/* ВІЗУАЛІЗАЦІЯ */}
             {activeObj && !isSwitching && activeObj.scanned && (
-                // Зміна ключа змушує React повністю перестворити компонент,
-                // що гарантує розрахунок нового initialZ для нового об'єкта
                 <ActiveObjectVisual 
                     key={activeObj.id} 
                     object={activeObj} 
@@ -210,6 +218,7 @@ export default function SpaceView() {
           </h1>
       </div>
 
+      {/* ПАНЕЛЬ ВЗАЄМОДІЇ */}
       <div className="absolute inset-x-0 bottom-[4.5rem] md:bottom-0 z-10 pointer-events-none flex flex-col justify-end items-center pb-2 md:pb-8 p-3">
           <div className="pointer-events-auto w-full max-w-sm md:max-w-md">
              {activeObj && !inCombat ? (
@@ -219,8 +228,9 @@ export default function SpaceView() {
                  `}>
                      <div className="flex justify-between items-end mb-3 border-b border-white/10 pb-2">
                          <div className="text-left">
+                            {/* 🔥 ТУТ ВИКОРИСТОВУЄМО НОВУ НАЗВУ */}
                             <h2 className={`text-xl md:text-3xl font-bold font-mono ${activeObj.type === 'enemy' ? 'text-neon-red' : 'text-white'}`}>
-                                {activeObj.scanned ? activeObj.type.toUpperCase() : '???'}
+                                {getObjectName(activeObj)}
                             </h2>
                             <p className="text-[10px] md:text-xs text-neon-cyan font-mono flex items-center gap-2">
                                 <Target size={12}/> {Math.floor(activeObj.distance)} KM
@@ -271,6 +281,7 @@ export default function SpaceView() {
           </div>
       </div>
 
+      {/* МОБІЛЬНЕ НИЖНЄ МЕНЮ */}
       <div className="md:hidden fixed bottom-0 inset-x-0 h-16 bg-space-950/90 border-t border-white/10 flex items-center justify-around z-30 px-2 backdrop-blur-lg">
           <button onClick={() => setMobileListOpen(!isMobileListOpen)} className={`flex flex-col items-center gap-1 p-2 w-16 ${isMobileListOpen ? 'text-neon-cyan' : 'text-gray-400'}`}>
               <List size={20} /> <span className="text-[9px]">LIST</span>
@@ -283,6 +294,7 @@ export default function SpaceView() {
           </div>
       </div>
 
+      {/* МОБІЛЬНИЙ СПИСОК */}
       {isMobileListOpen && (
           <div className="md:hidden absolute bottom-16 inset-x-0 bg-space-950/95 border-t border-neon-cyan/30 rounded-t-xl z-20 max-h-[50vh] overflow-y-auto p-3 shadow-[0_-5px_20px_rgba(0,0,0,0.5)]">
               <div className="flex justify-between items-center mb-3 sticky top-0 bg-space-950/95 py-2 border-b border-white/10">
@@ -294,7 +306,7 @@ export default function SpaceView() {
                       <button key={obj.id} onClick={() => handleSelect(obj.id)} className={`w-full p-3 rounded border text-left flex items-center gap-3 ${selectedId === obj.id ? 'bg-neon-cyan/10 border-neon-cyan text-white' : 'border-white/10 text-gray-400'}`}>
                           {obj.scanned ? getIcon(obj.type) : <div className="w-2 h-2 rounded-full bg-neon-orange animate-pulse"/>}
                           <div className="flex-1 min-w-0">
-                              <div className="font-bold text-xs truncate">{obj.scanned ? obj.type.toUpperCase() : 'UNKNOWN'}</div>
+                              <div className="font-bold text-xs truncate">{getObjectName(obj)}</div>
                               <div className="text-[10px] opacity-70">{Math.floor(obj.distance)} KM</div>
                           </div>
                       </button>
@@ -303,6 +315,7 @@ export default function SpaceView() {
           </div>
       )}
 
+      {/* ДЕСКТОПНИЙ САЙДБАР */}
       <div className={`hidden md:flex glass-panel border-l border-neon-cyan/30 flex-col z-20 bg-space-950/90 backdrop-blur-md transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-20' : 'w-80'}`}>
           <div className={`p-4 border-b flex items-center ${inCombat ? 'border-neon-red/50 bg-neon-red/10' : 'border-white/10'}`}>
               <button onClick={() => setSidebarCollapsed(!isSidebarCollapsed)} className="mr-2 text-neon-cyan hover:text-white transition-colors">
@@ -333,7 +346,8 @@ export default function SpaceView() {
                         </div>
                         {!isSidebarCollapsed && (
                             <div className="min-w-0">
-                                <div className={`text-xs font-mono font-bold truncate ${selectedId === obj.id ? 'text-white' : 'text-gray-400 group-hover:text-gray-200'}`}>{obj.scanned ? obj.type.toUpperCase() : 'UNKNOWN'}</div>
+                                {/* 🔥 ТУТ ТАКОЖ НОВА НАЗВА */}
+                                <div className={`text-xs font-mono font-bold truncate ${selectedId === obj.id ? 'text-white' : 'text-gray-400 group-hover:text-gray-200'}`}>{getObjectName(obj)}</div>
                                 <div className="text-[10px] text-gray-600 font-mono">{Math.floor(obj.distance)} KM</div>
                             </div>
                         )}
