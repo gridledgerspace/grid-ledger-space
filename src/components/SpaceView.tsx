@@ -10,12 +10,11 @@ import {
     ChevronRight, ChevronLeft, Target, Menu, X, List, Rocket
 } from 'lucide-react'
 
-// === ДВИГУН РУХУ (Фізика польоту) ===
+// === ДВИГУН РУХУ ===
 function GameLoop() {
   const { inCombat, status } = useGameStore()
 
   useFrame((_state, delta) => {
-    // Стоїмо, якщо бій або копаємо
     if (inCombat || status === 'mining') return
 
     const store = useGameStore.getState()
@@ -25,28 +24,23 @@ function GameLoop() {
 
     const target = objects[0]
     
-    // --- 1. ШВИДКІСТЬ ПІДЛЬОТУ ДО ЦІЛІ ---
-    // Чим далі ціль, тим швидше летимо (ефект Варпу)
-    // Якщо 5000 км -> швидкість 10000 км/с (миттєвий ривок)
-    // Якщо 500 км -> швидкість 1000 км/с
-    // Якщо 250 км -> швидкість 200 км/с (м'яка посадка)
-    let approachSpeed = target.distance * 2.0 * delta
+    // Розрахунок швидкості підльоту (Варп-ефект)
+    // Чим далі об'єкт, тим швидше ми летимо.
+    let approachSpeed = target.distance * 2.5 * delta
     
-    // Обмеження, щоб не летіти надто повільно в кінці
-    if (approachSpeed < 100 * delta) approachSpeed = 100 * delta
+    // Мінімальна швидкість (щоб не повзти в кінці)
+    if (approachSpeed < 150 * delta) approachSpeed = 150 * delta
 
-    // --- 2. ШВИДКІСТЬ ВІДДАЛЕННЯ ФОНУ ---
-    // Фон має відлітати швидко, щоб створити ефект руху
-    const backgroundSpeed = approachSpeed * 0.8 
+    // Фон відлітає трохи повільніше
+    const backgroundSpeed = approachSpeed * 0.5
 
     let hasChanges = false
 
     const newObjects = objects.map((obj, index) => {
-        // === ЦІЛЬ (Ми летимо ДО неї) ===
+        // === ЦІЛЬ (Летимо ДО неї) ===
         if (index === 0) {
-            if (obj.distance > 200) { // Зупинка на 200 км
+            if (obj.distance > 200) { 
                 const newDist = Math.max(200, obj.distance - approachSpeed)
-                
                 if (Math.abs(newDist - obj.distance) > 0.1) {
                     hasChanges = true
                     return { ...obj, distance: newDist }
@@ -55,12 +49,10 @@ function GameLoop() {
             return obj
         } 
         
-        // === ФОН (Ми летимо ВІД них) ===
+        // === ФОН (Летимо ВІД них) ===
         else {
-            // Вони віддаляються, поки не стануть дуже далеко (наприклад 50 000 км)
             if (obj.distance < 50000) {
                 const newDist = obj.distance + backgroundSpeed
-                
                 if (Math.abs(newDist - obj.distance) > 0.1) {
                     hasChanges = true
                     return { ...obj, distance: newDist }
@@ -78,26 +70,27 @@ function GameLoop() {
   return null
 }
 
-// Компонент, який рухає 3D модель відповідно до дистанції
+// === ВІЗУАЛІЗАЦІЯ З ПРАВИЛЬНИМ СТАРТОМ ===
 function ActiveObjectVisual({ object, color }: { object: any, color: string }) {
     const groupRef = useRef<any>(null)
 
+    // 🔥 ВАЖЛИВО: Рахуємо стартову позицію відразу, щоб не було стрибка з 0
+    // Формула: (Дистанція - 200) / 50. 
+    // Наприклад: 5000 км -> Z = -96 (далеко)
+    // 200 км -> Z = 0 (перед камерою)
+    const initialZ = -(object.distance - 200) / 50
+
     useFrame(() => {
         if (groupRef.current) {
-            // --- КОНВЕРТАЦІЯ ДИСТАНЦІЇ В 3D КООРДИНАТИ ---
-            // 200 км (впритул) -> Z = 0
-            // 5000 км (далеко) -> Z = -50
-            // Формула: -(distance - 200) / 100
-            // Ділимо на 100, щоб масштабувати кілометри в одиниці ThreeJS
             const targetZ = -(object.distance - 200) / 50
-            
-            // Плавно інтерполюємо позицію (Lerp) для м'якості кадру
+            // Плавне доведення позиції (щоб рух був м'яким)
             groupRef.current.position.z += (targetZ - groupRef.current.position.z) * 0.1
         }
     })
 
     return (
-        <group ref={groupRef}>
+        // Встановлюємо position відразу при рендері!
+        <group ref={groupRef} position={[0, 0, initialZ]}>
             <Object3D type={object.type} color={color} />
         </group>
     )
@@ -134,8 +127,7 @@ export default function SpaceView() {
     setIsSwitching(true)
     setSelectedId(id)
     
-    // Сортуємо: Обраний стає першим [0]. 
-    // GameLoop почне його наближати, а старий [0] стане фоном і почне віддалятися.
+    // Переміщуємо обраний об'єкт на початок масиву для двигуна
     const currentObjects = useGameStore.getState().localObjects
     const newOrder = [...currentObjects].sort((a, b) => {
         if (a.id === id) return -1
@@ -146,7 +138,9 @@ export default function SpaceView() {
     useGameStore.setState({ localObjects: newOrder })
 
     setMobileListOpen(false)
-    setTimeout(() => setIsSwitching(false), 500)
+    
+    // Коротша пауза для динаміки
+    setTimeout(() => setIsSwitching(false), 400)
   }
 
   const getObjectColor = (type: string) => {
@@ -185,26 +179,25 @@ export default function SpaceView() {
             
             <GameLoop /> 
 
-            {/* ВІЗУАЛІЗАЦІЯ АКТИВНОГО ОБ'ЄКТА */}
+            {/* ВІЗУАЛІЗАЦІЯ */}
             {activeObj && !isSwitching && activeObj.scanned && (
-                // Використовуємо обгортку, яка рухає об'єкт по осі Z
+                // Зміна ключа змушує React повністю перестворити компонент,
+                // що гарантує розрахунок нового initialZ для нового об'єкта
                 <ActiveObjectVisual 
-                    key={activeObj.id} // Важливо: зміна ключа скидає анімацію для нового об'єкта
+                    key={activeObj.id} 
                     object={activeObj} 
                     color={getObjectColor(activeObj.type)} 
                 />
             )}
-            
-            {/* Фон прибрали, як ви просили */}
             
             <OrbitControls enableZoom={false} autoRotate autoRotateSpeed={inCombat ? 0.2 : 0.5} />
          </Canvas>
       </div>
 
       {isSwitching && (
-          <div className="absolute inset-0 z-20 bg-black/50 backdrop-blur-md flex items-center justify-center animate-in fade-in duration-200">
+          <div className="absolute inset-0 z-20 bg-black/60 backdrop-blur-md flex items-center justify-center animate-in fade-in duration-200">
               <div className="text-neon-cyan font-mono text-xl animate-pulse tracking-[0.3em]">
-                  CALCULATING APPROACH...
+                  APPROACHING...
               </div>
           </div>
       )}
@@ -217,7 +210,6 @@ export default function SpaceView() {
           </h1>
       </div>
 
-      {/* ПАНЕЛЬ ВЗАЄМОДІЇ */}
       <div className="absolute inset-x-0 bottom-[4.5rem] md:bottom-0 z-10 pointer-events-none flex flex-col justify-end items-center pb-2 md:pb-8 p-3">
           <div className="pointer-events-auto w-full max-w-sm md:max-w-md">
              {activeObj && !inCombat ? (
@@ -279,7 +271,6 @@ export default function SpaceView() {
           </div>
       </div>
 
-      {/* МОБІЛЬНЕ НИЖНЄ МЕНЮ */}
       <div className="md:hidden fixed bottom-0 inset-x-0 h-16 bg-space-950/90 border-t border-white/10 flex items-center justify-around z-30 px-2 backdrop-blur-lg">
           <button onClick={() => setMobileListOpen(!isMobileListOpen)} className={`flex flex-col items-center gap-1 p-2 w-16 ${isMobileListOpen ? 'text-neon-cyan' : 'text-gray-400'}`}>
               <List size={20} /> <span className="text-[9px]">LIST</span>
@@ -292,7 +283,6 @@ export default function SpaceView() {
           </div>
       </div>
 
-      {/* МОБІЛЬНИЙ СПИСОК (DRAWER) */}
       {isMobileListOpen && (
           <div className="md:hidden absolute bottom-16 inset-x-0 bg-space-950/95 border-t border-neon-cyan/30 rounded-t-xl z-20 max-h-[50vh] overflow-y-auto p-3 shadow-[0_-5px_20px_rgba(0,0,0,0.5)]">
               <div className="flex justify-between items-center mb-3 sticky top-0 bg-space-950/95 py-2 border-b border-white/10">
@@ -313,7 +303,6 @@ export default function SpaceView() {
           </div>
       )}
 
-      {/* ДЕСКТОПНИЙ САЙДБАР */}
       <div className={`hidden md:flex glass-panel border-l border-neon-cyan/30 flex-col z-20 bg-space-950/90 backdrop-blur-md transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-20' : 'w-80'}`}>
           <div className={`p-4 border-b flex items-center ${inCombat ? 'border-neon-red/50 bg-neon-red/10' : 'border-white/10'}`}>
               <button onClick={() => setSidebarCollapsed(!isSidebarCollapsed)} className="mr-2 text-neon-cyan hover:text-white transition-colors">
