@@ -219,38 +219,55 @@ export const useGameStore = create<GameState>((set, get) => ({
             (payload) => {
                 const { localObjects } = get()
                 const newProfile = payload.new as any
-                const oldProfile = payload.old as any
-
-                // 1. ГРАВЕЦЬ ПРИБУВ
-                if (newProfile && newProfile.current_sector === currentSector && newProfile.id !== userId) {
-                    console.log('🚀 Player entered:', newProfile.id)
-                    // Якщо гравця ще немає в списку
-                    if (!localObjects.find(o => o.id === `player-${newProfile.id}`)) {
-                        const newPlayerObj: SpaceObject = {
-                            id: `player-${newProfile.id}`,
-                            type: 'player',
-                            distance: 1500, 
-                            scanned: true,
-                            playerName: `Pilot ${newProfile.id.slice(0, 4)}`
+                // oldProfile може бути неповним, тому ми на нього не покладаємось для перевірки сектору
+                
+                // === ЛОГІКА ДЛЯ 'UPDATE' або 'INSERT' ===
+                if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+                    
+                    // 1. ГРАВЕЦЬ ПРИБУВ (Його новий сектор == наш, і його ще немає в списку)
+                    if (newProfile.current_sector === currentSector && newProfile.id !== userId) {
+                        const alreadyExists = localObjects.find(o => o.id === `player-${newProfile.id}`)
+                        
+                        if (!alreadyExists) {
+                            console.log('🚀 Player entered:', newProfile.id)
+                            const newPlayerObj: SpaceObject = {
+                                id: `player-${newProfile.id}`,
+                                type: 'player',
+                                distance: 1500, 
+                                scanned: true,
+                                playerName: `Pilot ${newProfile.id.slice(0, 4)}`
+                            }
+                            set({ 
+                                localObjects: [...localObjects, newPlayerObj],
+                                combatLog: [...get().combatLog, `> ALERT: Pilot ${newProfile.id.slice(0,4)} entered sector.`]
+                            })
                         }
-                        set({ 
-                            localObjects: [...localObjects, newPlayerObj],
-                            combatLog: [...get().combatLog, `> ALERT: Pilot ${newProfile.id.slice(0,4)} entered sector.`]
-                        })
+                    }
+
+                    // 2. ГРАВЕЦЬ ПОКИНУВ (Він є у нас на екрані, АЛЕ його новий сектор != наш)
+                    if (newProfile.current_sector !== currentSector) {
+                        const existsLocally = localObjects.find(o => o.id === `player-${newProfile.id}`)
+                        
+                        if (existsLocally) {
+                            console.log('🚀 Player left (Moved):', newProfile.id)
+                            set({ 
+                                localObjects: localObjects.filter(o => o.id !== `player-${newProfile.id}`),
+                                combatLog: [...get().combatLog, `> SIGNAL LOST: Pilot ${newProfile.id.slice(0,4)} left.`]
+                            })
+                        }
                     }
                 }
 
-                // 2. ГРАВЕЦЬ ПОКИНУВ СЕКТОР
-                if (
-                    (payload.eventType === 'UPDATE' && newProfile.current_sector !== currentSector && oldProfile.current_sector === currentSector) ||
-                    (payload.eventType === 'DELETE' && oldProfile.current_sector === currentSector)
-                ) {
-                    const idToRemove = payload.eventType === 'DELETE' ? oldProfile.id : newProfile.id
-                    if (idToRemove !== userId) {
-                         console.log('🚀 Player left:', idToRemove)
+                // === ЛОГІКА ДЛЯ 'DELETE' (Гравець видалився з гри) ===
+                if (payload.eventType === 'DELETE') {
+                    const oldProfile = payload.old as any
+                    const existsLocally = localObjects.find(o => o.id === `player-${oldProfile.id}`)
+                    
+                    if (existsLocally) {
+                        console.log('🚀 Player disconnected:', oldProfile.id)
                         set({ 
-                            localObjects: localObjects.filter(o => o.id !== `player-${idToRemove}`),
-                            combatLog: [...get().combatLog, `> SIGNAL LOST: Pilot ${idToRemove.slice(0,4)} left.`]
+                            localObjects: localObjects.filter(o => o.id !== `player-${oldProfile.id}`),
+                            combatLog: [...get().combatLog, `> SIGNAL LOST: Pilot ${oldProfile.id.slice(0,4)} disconnected.`]
                         })
                     }
                 }
@@ -260,6 +277,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             'postgres_changes',
             { event: 'UPDATE', schema: 'public', table: 'sectors', filter: `id=eq.${currentSector}` },
             (payload) => {
+                // ... (Логіка ресурсів залишається без змін)
                 console.log('💎 Resource update:', payload.new)
                 const newData = payload.new as any
                 const { localObjects, sectorResources } = get()
