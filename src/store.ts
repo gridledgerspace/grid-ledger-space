@@ -212,10 +212,12 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       const channel = supabase.channel(`sector-room-${currentSector}`)
         .on(
-            'postgres_changes', 
-            { event: '*', schema: 'public', table: 'profiles' }, 
-            (payload) => {
-                const { localObjects } = get()
+    'postgres_changes', 
+    { event: '*', schema: 'public', table: 'profiles' }, 
+    (payload) => {
+        console.log('🔥 REALTIME EVENT:', payload) // <--- ДОДАЙТЕ ЦЕ
+        
+        const { localObjects } = get()
                 const newProfile = payload.new as any
                 const oldProfile = payload.old as any
 
