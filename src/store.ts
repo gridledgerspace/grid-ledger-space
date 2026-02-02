@@ -137,6 +137,9 @@ interface GameState {
   openContainer: (id: string) => void
   closeEvent: () => void
   setUserId: (id: string) => void
+
+  isStationOpen: boolean // <--- ДОДАТИ ЦЕ
+  setStationOpen: (isOpen: boolean) => void // <--- ДОДАТИ ЦЕ
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -165,7 +168,9 @@ export const useGameStore = create<GameState>((set, get) => ({
   enemyMaxHp: 100,
   enemyHp: 100,
   combatLog: [],
+  isStationOpen: false,
 
+  setStationOpen: (isOpen) => set({ isStationOpen: isOpen }),
   setUserId: (id) => set({ userId: id }),
   setTargetSector: (sector) => set({ targetSector: sector }),
 

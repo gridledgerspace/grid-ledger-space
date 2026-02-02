@@ -12,8 +12,7 @@ import StationMenu from './components/StationMenu'
 import { RotateCcw } from 'lucide-react'
 
 function App() {
-  const { status, currentSector } = useGameStore()
-  const [showStation, setShowStation] = useState(false)
+  const { status, currentSector, isStationOpen, setStationOpen } = useGameStore()
   const [session, setSession] = useState<any>(null)
   
   const [isDataLoaded, setIsDataLoaded] = useState(false)
@@ -130,18 +129,16 @@ function App() {
       <EventOverlay />
       <CombatOverlay />
       
-      {showStation && <StationMenu onClose={() => { setShowStation(false); saveGame('Station Exit') }} />}
+      {/* 🔥 ВИПРАВЛЕНО: Використовуємо глобальний стейт */}
+      {isStationOpen && <StationMenu onClose={() => { setStationOpen(false); saveGame('Station Exit') }} />}
+      
       {status === 'warping' && <WarpScreen />}
       {status === 'map' && <SectorMap />}
       {(status === 'space' || status === 'mining' || status === 'combat') && <SpaceView key={currentSector} />}
 
       {status === 'hangar' && (
         <>
-            {/* 🔥 ТУТ БУЛА ПРОБЛЕМА: Ми залишаємо ТІЛЬКИ сцену */}
-            {/* Вона сама малює свій UI (HangarScene.tsx) */}
             <HangarScene />
-            
-            {/* Індикатор збереження */}
             {isSaving && (
                 <div className="absolute top-4 right-4 z-50 text-neon-cyan text-[10px] font-mono animate-pulse flex items-center gap-1">
                     <RotateCcw size={10} className="animate-spin"/> SAVING...
