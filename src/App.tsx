@@ -12,7 +12,7 @@ import StationMenu from './components/StationMenu'
 import { RotateCcw } from 'lucide-react'
 
 function App() {
-  const { status, credits, currentSector, setUserId, loadUserProfile, scanCurrentSector } = useGameStore((state: any) => state)
+  const { status, currentSector } = useGameStore()
   const [showStation, setShowStation] = useState(false)
   const [session, setSession] = useState<any>(null)
   
@@ -26,42 +26,48 @@ function App() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       if (session) {
-        setUserId(session.user.id) 
+        useGameStore.getState().setUserId(session.user.id) 
         loadUserData(session.user.id)
       }
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
-      if (session) setUserId(session.user.id)
-      if (session && !currentSector) { 
+      if (session) useGameStore.getState().setUserId(session.user.id)
+      if (session && !useGameStore.getState().currentSector) { 
          if (!isDataLoaded) loadUserData(session.user.id)
       }
     })
     return () => subscription.unsubscribe()
   }, []) 
 
-  // === ЗАВАНТАЖЕННЯ Гравця ===
+  // === ЗАВАНТАЖЕННЯ Гравця (Повернули робочу версію) ===
   const loadUserData = async (userId: string) => {
     if (isDataLoaded) return 
     setLoadingData(true)
     
-    // Використовуємо store action для завантаження
-    await loadUserProfile() // <--- Це завантажить hull, ship_class тощо
+    // Прямий запит до БД (як було у вас раніше)
+    const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
     
-    // Додатково можна дозавантажити специфічні дані, якщо їх немає в loadUserProfile
-    const { data } = await supabase.from('profiles').select('visited_sectors').eq('id', userId).single()
     if (data) {
-        useGameStore.setState({ visitedSectors: data.visited_sectors || ['0:0'] })
+      useGameStore.setState({
+        credits: data.credits,
+        hull: data.hull,
+        maxHull: data.max_hull,
+        currentSector: data.current_sector,
+        cargo: data.cargo || {}, 
+        visitedSectors: data.visited_sectors || ['0:0'],
+        // Якщо є ship_class - беремо його, якщо ні - дефолт
+        shipClass: data.ship_class || 'scout' 
+      })
+      setIsDataLoaded(true)
+      
+      // Примусове сканування
+      setTimeout(() => {
+          useGameStore.getState().scanCurrentSector()
+      }, 100)
     }
-
-    setIsDataLoaded(true)
     setLoadingData(false)
-    
-    // Примусове сканування
-    setTimeout(() => {
-        scanCurrentSector()
-    }, 100)
   }
 
   const saveGame = async (_reason: string) => {
@@ -95,19 +101,24 @@ function App() {
             supabase.from('profiles').update({ visited_sectors: newVisited }).eq('id', session.user.id).then()
         }
         
-        // Перевірка сектору в БД
         let { data: sector } = await supabase.from('sectors').select('*').eq('id', currentSector).single()
+        if (!sector) {
+            // Якщо сектору немає в БД - store сам його згенерує через scanCurrentSector
+        }
         
-        // Якщо сектору немає - store сам його створить через scanCurrentSector -> generate -> upsert
-        // Тому тут ми просто запускаємо скан
-        scanCurrentSector()
+        if (sector) {
+            useGameStore.setState({
+                currentSectorType: sector.sector_type, 
+                sectorResources: { iron: sector.iron_amount, gold: sector.gold_amount, darkMatter: sector.dark_matter_amount }
+            })
+        }
         
+        useGameStore.getState().scanCurrentSector()
         if (currentSector !== '0:0') saveGame('Warp Complete')
     }
     initSector()
   }, [currentSector, session, isDataLoaded])
 
-  // Автозбереження при вході в ангар
   useEffect(() => { if (session && status === 'hangar') saveGame('Enter Hangar') }, [status])
   
   if (!session) return <AuthScreen />
@@ -116,24 +127,21 @@ function App() {
   return (
     <div className="h-[100dvh] w-full bg-space-950 relative overflow-hidden text-white font-sans selection:bg-neon-cyan selection:text-black">
       
-      {/* Глобальні оверлеї */}
       <EventOverlay />
       <CombatOverlay />
       
       {showStation && <StationMenu onClose={() => { setShowStation(false); saveGame('Station Exit') }} />}
-      
-      {/* Екрани */}
       {status === 'warping' && <WarpScreen />}
       {status === 'map' && <SectorMap />}
-      
-      {/* Основний ігровий вид */}
       {(status === 'space' || status === 'mining' || status === 'combat') && <SpaceView key={currentSector} />}
 
-      {/* Ангар: тепер ми просто рендеримо сцену, вона сама малює свій UI */}
       {status === 'hangar' && (
         <>
+            {/* 🔥 ТУТ БУЛА ПРОБЛЕМА: Ми залишаємо ТІЛЬКИ сцену */}
+            {/* Вона сама малює свій UI (HangarScene.tsx) */}
             <HangarScene />
-            {/* Індикатор збереження можна залишити глобально */}
+            
+            {/* Індикатор збереження */}
             {isSaving && (
                 <div className="absolute top-4 right-4 z-50 text-neon-cyan text-[10px] font-mono animate-pulse flex items-center gap-1">
                     <RotateCcw size={10} className="animate-spin"/> SAVING...
