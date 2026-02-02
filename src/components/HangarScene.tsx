@@ -2,15 +2,23 @@ import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Stars } from '@react-three/drei'
 import { useGameStore } from '../store'
 import Object3D from './Object3D'
-import { Zap, Crosshair, Box, Map, Activity, ShoppingBag } from 'lucide-react'
+import { Zap, Crosshair, Box, Map, Activity, ShoppingBag, Wrench } from 'lucide-react'
 
 export default function HangarScene() {
-  // 🔥 ДОДАНО: setStationOpen, currentSector
-  const { credits, cargo, maxCargo, hull, maxHull, shipClass, setStationOpen, currentSector } = useGameStore((state: any) => state)
+  const { 
+      credits, cargo, maxCargo, hull, maxHull, shipClass, 
+      setStationOpen, currentSector, repairHull 
+  } = useGameStore((state: any) => state)
 
   const cargoCount = Object.values(cargo as Record<string, number>).reduce((a, b) => a + b, 0)
   
+  // === ЛОГІКА РЕМОНТУ В АНГАРІ ===
   const healthPercent = (hull / maxHull) * 100
+  const isDamaged = hull < maxHull
+  const damageAmount = maxHull - hull
+  const repairCost = damageAmount * 10
+  const canAffordRepair = credits >= repairCost
+
   let healthColor = "text-white"
   let iconColor = "text-neon-cyan"
   
@@ -20,6 +28,14 @@ export default function HangarScene() {
   } else if (healthPercent < 100) {
       healthColor = "text-yellow-500"
       iconColor = "text-yellow-500"
+  }
+
+  const handleQuickRepair = () => {
+      if (isDamaged && canAffordRepair) {
+          repairHull()
+      } else if (isDamaged && !canAffordRepair) {
+          alert('NOT ENOUGH CREDITS FOR REPAIR!')
+      }
   }
 
   return (
@@ -51,7 +67,6 @@ export default function HangarScene() {
                   {credits.toLocaleString()} CR
               </div>
 
-              {/* 🔥 КНОПКА СТАНЦІЇ (Тільки якщо ми вдома) */}
               {currentSector === '0:0' && (
                   <button 
                     onClick={() => setStationOpen(true)}
@@ -68,14 +83,59 @@ export default function HangarScene() {
           
           <div className="w-full overflow-x-auto px-4 pb-4 flex justify-start md:justify-center gap-3 md:gap-6 pointer-events-auto no-scrollbar">
               
-              <div className={`flex-shrink-0 flex flex-col items-center justify-center gap-1 md:gap-2 w-20 h-20 md:w-28 md:h-28 glass-panel border bg-black/80 transition-all ${healthPercent < 100 ? 'border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.3)]' : 'border-neon-cyan/30 hover:border-neon-cyan'}`}>
-                  <Activity className={`w-5 h-5 md:w-8 md:h-8 ${iconColor}`} />
-                  <div className="text-[9px] md:text-xs text-gray-400 text-center leading-tight">
-                      HULL<br/>
-                      <span className={`${healthColor} font-bold text-xs md:text-sm`}>{hull}/{maxHull}</span>
-                  </div>
-              </div>
+              {/* 🔥 HULL (ТЕПЕР ІНТЕРАКТИВНИЙ) */}
+              <button 
+                  onClick={handleQuickRepair}
+                  disabled={!isDamaged}
+                  className={`
+                      flex-shrink-0 flex flex-col items-center justify-center gap-1 md:gap-2
+                      w-20 h-20 md:w-28 md:h-28 
+                      glass-panel border bg-black/80 transition-all relative group
+                      ${isDamaged 
+                          ? 'border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.3)] hover:bg-red-900/20 cursor-pointer' 
+                          : 'border-neon-cyan/30 hover:border-neon-cyan cursor-default'}
+                  `}
+              >
+                  {isDamaged && (
+                      <div className="absolute top-1 right-1 bg-red-500 text-black text-[8px] px-1 rounded font-bold animate-pulse">
+                          REPAIR
+                      </div>
+                  )}
+                  
+                  {isDamaged ? (
+                      // Іконка ключа при наведенні або пошкодженні
+                      <div className="group-hover:hidden">
+                          <Activity className={`w-5 h-5 md:w-8 md:h-8 ${iconColor}`} />
+                      </div>
+                  ) : (
+                      <Activity className={`w-5 h-5 md:w-8 md:h-8 ${iconColor}`} />
+                  )}
+                  
+                  {isDamaged && (
+                      <div className="hidden group-hover:block text-red-500 animate-bounce">
+                          <Wrench size={24} />
+                      </div>
+                  )}
 
+                  <div className="text-[9px] md:text-xs text-gray-400 text-center leading-tight group-hover:opacity-100">
+                      {isDamaged ? (
+                          <span className="text-red-400 group-hover:hidden">DAMAGED</span>
+                      ) : (
+                          "HULL"
+                      )}
+                      
+                      {/* При наведенні показуємо ціну */}
+                      <div className="hidden group-hover:block text-yellow-500 font-bold text-[10px]">
+                          -{repairCost} CR
+                      </div>
+                      
+                      <span className={`block group-hover:hidden ${healthColor} font-bold text-xs md:text-sm`}>
+                          {hull}/{maxHull}
+                      </span>
+                  </div>
+              </button>
+
+              {/* ENGINE (Без змін) */}
               <div className="flex-shrink-0 w-20 h-20 md:w-28 md:h-28 glass-panel border border-neon-cyan/30 flex flex-col items-center justify-center gap-1 md:gap-2 bg-black/80 hover:border-neon-cyan transition-all">
                   <Zap className="w-5 h-5 md:w-8 md:h-8 text-neon-cyan" />
                   <div className="text-[9px] md:text-xs text-gray-400 text-center leading-tight">
@@ -83,6 +143,7 @@ export default function HangarScene() {
                   </div>
               </div>
               
+              {/* LASER (Без змін) */}
               <div className="flex-shrink-0 w-20 h-20 md:w-28 md:h-28 glass-panel border border-neon-orange/30 flex flex-col items-center justify-center gap-1 md:gap-2 bg-black/80 hover:border-neon-orange transition-all">
                   <Crosshair className="w-5 h-5 md:w-8 md:h-8 text-neon-orange" />
                   <div className="text-[9px] md:text-xs text-gray-400 text-center leading-tight">
@@ -90,6 +151,7 @@ export default function HangarScene() {
                   </div>
               </div>
               
+              {/* CARGO (Без змін) */}
               <div className="flex-shrink-0 w-20 h-20 md:w-28 md:h-28 glass-panel border border-yellow-500/30 flex flex-col items-center justify-center gap-1 md:gap-2 bg-black/80 hover:border-yellow-500 transition-all">
                   <Box className="w-5 h-5 md:w-8 md:h-8 text-yellow-500" />
                   <div className="text-[9px] md:text-xs text-gray-400 text-center leading-tight">

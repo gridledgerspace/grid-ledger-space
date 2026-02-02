@@ -434,10 +434,26 @@ export const useGameStore = create<GameState>((set, get) => ({
   
   repairHull: () => {
       const { hull, maxHull, credits } = get()
+      // Якщо здоров'я повне - нічого не робимо
       if (hull >= maxHull) return
+
       const damage = maxHull - hull
-      const cost = damage * 10
-      if (credits >= cost) { set({ credits: credits - cost, hull: maxHull }) }
+      const costPerHp = 10 // Ціна за 1 HP
+      const totalCost = damage * costPerHp
+
+      if (credits >= totalCost) {
+          // Якщо грошей вистачає на повний ремонт
+          set({ credits: credits - totalCost, hull: maxHull })
+      } else {
+          // Якщо грошей мало - лагодимо на все, що є
+          const amountCanRepair = Math.floor(credits / costPerHp)
+          if (amountCanRepair > 0) {
+              set({ 
+                  credits: credits - (amountCanRepair * costPerHp), 
+                  hull: hull + amountCanRepair 
+              })
+          }
+      }
   },
 
   startCombat: (enemyId) => {
