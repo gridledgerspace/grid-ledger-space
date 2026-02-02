@@ -5,7 +5,7 @@ import { RealtimeChannel } from '@supabase/supabase-js'
 export type EntityType = 'asteroid' | 'enemy' | 'station' | 'empty' | 'debris' | 'container' | 'player'
 export type ResourceType = 'Iron' | 'Gold' | 'DarkMatter'
 
-// 🔥 КОНФІГУРАЦІЯ КОРАБЛІВ
+// КОНФІГУРАЦІЯ КОРАБЛІВ
 export const SHIP_SPECS: Record<string, { maxHull: number, maxCargo: number, name: string }> = {
     'scout': { name: 'MK-1 SCOUT', maxHull: 100, maxCargo: 50 },
     'frigate': { name: 'MK-2 FRIGATE', maxHull: 250, maxCargo: 150 },
@@ -116,7 +116,7 @@ interface GameState {
   subscribeToSector: () => void 
   fetchSectorGrid: (center: string) => Promise<void>
   updatePresence: () => Promise<void>
-  scanSystem: () => void // <-- Була пропущена
+  scanSystem: () => void
   mineObject: (id: string) => void
   extractResource: () => void
   sellResource: (resource: string) => void
@@ -204,30 +204,31 @@ export const useGameStore = create<GameState>((set, get) => ({
       })
   },
 
-  // 🔥 REALTIME ПІДПИСКА
+  // 🔥 РЕАЛІЗАЦІЯ REALTIME
   subscribeToSector: () => {
       const { currentSector, userId, realtimeChannel } = get()
       
       if (realtimeChannel) supabase.removeChannel(realtimeChannel)
 
+      console.log(`📡 Connecting to realtime channel for sector: ${currentSector}`)
+
       const channel = supabase.channel(`sector-room-${currentSector}`)
         .on(
-    'postgres_changes', 
-    { event: '*', schema: 'public', table: 'profiles' }, 
-    (payload) => {
-        console.log('🔥 REALTIME EVENT:', payload) // <--- ДОДАЙТЕ ЦЕ
-        
-        const { localObjects } = get()
+            'postgres_changes', 
+            { event: '*', schema: 'public', table: 'profiles' }, 
+            (payload) => {
+                const { localObjects } = get()
                 const newProfile = payload.new as any
                 const oldProfile = payload.old as any
 
                 // 1. ГРАВЕЦЬ ПРИБУВ
                 if (newProfile && newProfile.current_sector === currentSector && newProfile.id !== userId) {
+                    console.log('🚀 Player entered:', newProfile.id)
+                    // Якщо гравця ще немає в списку
                     if (!localObjects.find(o => o.id === `player-${newProfile.id}`)) {
                         const newPlayerObj: SpaceObject = {
                             id: `player-${newProfile.id}`,
                             type: 'player',
-                            // Ставимо на фіксовану відстань, щоб не з'являлись "перед носом"
                             distance: 1500, 
                             scanned: true,
                             playerName: `Pilot ${newProfile.id.slice(0, 4)}`
@@ -246,6 +247,7 @@ export const useGameStore = create<GameState>((set, get) => ({
                 ) {
                     const idToRemove = payload.eventType === 'DELETE' ? oldProfile.id : newProfile.id
                     if (idToRemove !== userId) {
+                         console.log('🚀 Player left:', idToRemove)
                         set({ 
                             localObjects: localObjects.filter(o => o.id !== `player-${idToRemove}`),
                             combatLog: [...get().combatLog, `> SIGNAL LOST: Pilot ${idToRemove.slice(0,4)} left.`]
@@ -258,7 +260,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             'postgres_changes',
             { event: 'UPDATE', schema: 'public', table: 'sectors', filter: `id=eq.${currentSector}` },
             (payload) => {
-                // 3. ОНОВЛЕННЯ РЕСУРСІВ (хтось копає)
+                console.log('💎 Resource update:', payload.new)
                 const newData = payload.new as any
                 const { localObjects, sectorResources } = get()
                 
@@ -268,10 +270,8 @@ export const useGameStore = create<GameState>((set, get) => ({
                     darkMatter: newData.dark_matter_amount 
                 }})
 
-                // Оновлюємо відображення астероїдів
                 const updatedObjects = localObjects.map(obj => {
                     if (obj.type === 'asteroid' && obj.data) {
-                        // Якщо заліза в базі стало менше, ніж у нас на екрані -> оновлюємо
                         if (obj.data.resource === 'Iron') return { ...obj, data: { ...obj.data, amount: Math.min(obj.data.amount, newData.iron_amount) } }
                         if (obj.data.resource === 'Gold') return { ...obj, data: { ...obj.data, amount: Math.min(obj.data.amount, newData.gold_amount) } }
                         if (obj.data.resource === 'DarkMatter') return { ...obj, data: { ...obj.data, amount: Math.min(obj.data.amount, newData.dark_matter_amount) } }
@@ -279,7 +279,6 @@ export const useGameStore = create<GameState>((set, get) => ({
                     return obj
                 })
                 
-                // Якщо ресурсу стало 0, змінюємо тип на debris
                 const cleanObjects = updatedObjects.map(obj => {
                     if (obj.type === 'asteroid' && obj.data && obj.data.amount <= 0) {
                         return { ...obj, type: 'debris' as EntityType }
@@ -290,7 +289,9 @@ export const useGameStore = create<GameState>((set, get) => ({
                 set({ localObjects: cleanObjects })
             }
         )
-        .subscribe()
+        .subscribe((status) => {
+            console.log(`📡 Subscription status for ${currentSector}:`, status)
+        })
 
       set({ realtimeChannel: channel })
   },
@@ -357,7 +358,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     const objects: SpaceObject[] = []
 
-    // 1. Завантажуємо гравців, які ВЖЕ там
+    // 1. ГРАВЦІ (STATIC LOAD)
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
     const { data: players } = await supabase
         .from('profiles').select('id').eq('current_sector', currentSector)
@@ -372,7 +373,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         })
     }
     
-    // 2. Вороги
+    // 2. ВОРОГИ
     for (let i = 0; i < enemyCount; i++) {
         objects.push({ id: `enemy-${i}-${Date.now()}`, type: 'enemy', distance: 2500 + (i * 500), scanned: true, enemyLevel: 1 })
     }
@@ -385,8 +386,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         }) 
     }
 
-    // 3. Астероїди (генеруємо статично, щоб у всіх були однакові ID для синхронізації)
-    // Використовуємо індекс 0, 1, 2, щоб при оновленні по мережі знайти їх
+    // 3. АСТЕРОЇДИ
     let asteroidIndex = 0
     if (currentRes.iron > 0) {
         const chunks = currentRes.iron > 300 ? 2 : 1
@@ -411,13 +411,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ localObjects: objects })
   },
 
-  // === ВИПРАВЛЕНО: Додані відсутні методи ===
-  scanSystem: () => {
-      const { localObjects } = get()
-      const updated = localObjects.map(o => ({ ...o, scanned: true }))
-      set({ localObjects: updated })
-  },
-  
+  // 🔥 РЕАЛІЗАЦІЯ ВІДСУТНІХ ФУНКЦІЙ (для виправлення помилки TS)
   fetchSectorGrid: async (center: string) => {
       if (!center) return
       const [cx, cy] = center.split(':').map(Number)
@@ -443,6 +437,12 @@ export const useGameStore = create<GameState>((set, get) => ({
           newDetails[row.id] = { id: row.id, hasResources, hasEnemies, isDepleted, lastUpdated: now }
       })
       set(state => ({ sectorDetails: { ...state.sectorDetails, ...newDetails } }))
+  },
+
+  scanSystem: () => {
+      const { localObjects } = get()
+      const updated = localObjects.map(o => ({ ...o, scanned: true }))
+      set({ localObjects: updated })
   },
 
   mineObject: (id) => {
@@ -513,7 +513,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     if ((newSectorResources.iron + newSectorResources.gold + newSectorResources.darkMatter) <= 0) {
         updateData.last_depleted_at = new Date().toISOString()
     }
-    // Це оновлення в БД автоматично розішле подію всім гравцям через Realtime
+    // Оновлення БД викличе Realtime подію для інших гравців
     supabase.from('sectors').update(updateData).eq('id', currentSector).then()
   },
 
