@@ -1,31 +1,16 @@
 import { create } from 'zustand'
 import { supabase } from './supabase'
+import { RealtimeChannel } from '@supabase/supabase-js'
 
 export type EntityType = 'asteroid' | 'enemy' | 'station' | 'empty' | 'debris' | 'container' | 'player'
 export type ResourceType = 'Iron' | 'Gold' | 'DarkMatter'
 
-// 🔥 1. КОНФІГУРАЦІЯ КОРАБЛІВ (Баланс гри)
+// 🔥 КОНФІГУРАЦІЯ КОРАБЛІВ
 export const SHIP_SPECS: Record<string, { maxHull: number, maxCargo: number, name: string }> = {
-    'scout': { 
-        name: 'MK-1 SCOUT', 
-        maxHull: 100, 
-        maxCargo: 50 
-    },
-    'frigate': { 
-        name: 'MK-2 FRIGATE', 
-        maxHull: 250, 
-        maxCargo: 150 
-    },
-    'hauler': { 
-        name: 'HV-1 HAULER', 
-        maxHull: 150, 
-        maxCargo: 500 
-    },
-    'destroyer': { 
-        name: 'MK-3 DESTROYER', 
-        maxHull: 500, 
-        maxCargo: 80 
-    }
+    'scout': { name: 'MK-1 SCOUT', maxHull: 100, maxCargo: 50 },
+    'frigate': { name: 'MK-2 FRIGATE', maxHull: 250, maxCargo: 150 },
+    'hauler': { name: 'HV-1 HAULER', maxHull: 150, maxCargo: 500 },
+    'destroyer': { name: 'MK-3 DESTROYER', maxHull: 500, maxCargo: 80 }
 }
 
 export interface SpaceObject {
@@ -91,13 +76,11 @@ const generateSectorContent = (sectorId: string) => {
     return { iron, gold, darkMatter, enemies, enemyLvl }
 }
 
-// 🔥 2. ОНОВЛЕНИЙ ІНТЕРФЕЙС (Додано shipClass)
 interface GameState {
   status: 'hangar' | 'map' | 'warping' | 'space' | 'mining' | 'combat' | 'debris'
   currentSectorType: 'wild' | 'station'
   credits: number
   
-  // Додані властивості для корабля
   shipClass: string 
   hull: number
   maxHull: number
@@ -118,14 +101,22 @@ interface GameState {
   enemyMaxHp: number
   enemyHp: number
   combatLog: string[]
+  
+  // UI States
+  isStationOpen: boolean
+  setStationOpen: (isOpen: boolean) => void
+
+  // Realtime
+  realtimeChannel: RealtimeChannel | null
 
   setTargetSector: (sector: string) => void
   startWarp: () => void
   completeWarp: () => void
   scanCurrentSector: () => void 
+  subscribeToSector: () => void 
   fetchSectorGrid: (center: string) => Promise<void>
   updatePresence: () => Promise<void>
-  scanSystem: () => void
+  scanSystem: () => void // <-- Була пропущена
   mineObject: (id: string) => void
   extractResource: () => void
   sellResource: (resource: string) => void
@@ -137,16 +128,12 @@ interface GameState {
   openContainer: (id: string) => void
   closeEvent: () => void
   setUserId: (id: string) => void
-
-  isStationOpen: boolean // <--- ДОДАТИ ЦЕ
-  setStationOpen: (isOpen: boolean) => void // <--- ДОДАТИ ЦЕ
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
   status: 'hangar',
   credits: 1000,
   
-  // 🔥 3. ПОЧАТКОВІ ЗНАЧЕННЯ ДЛЯ КОРАБЛЯ
   shipClass: 'scout', 
   hull: 100, 
   maxHull: 100,
@@ -169,6 +156,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   enemyHp: 100,
   combatLog: [],
   isStationOpen: false,
+  realtimeChannel: null,
 
   setStationOpen: (isOpen) => set({ isStationOpen: isOpen }),
   setUserId: (id) => set({ userId: id }),
@@ -184,13 +172,20 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   startWarp: () => {
-      const { targetSector, currentSector, jumpRange } = get()
+      const { targetSector, currentSector, jumpRange, realtimeChannel } = get()
       if (!targetSector) return
       const dist = getGridDistance(currentSector, targetSector)
       if (dist > jumpRange) {
           alert('JUMP RANGE EXCEEDED! UPGRADE ENGINE.')
           return
       }
+      
+      // Відписуємось від старого сектору
+      if (realtimeChannel) {
+          supabase.removeChannel(realtimeChannel)
+          set({ realtimeChannel: null })
+      }
+
       set({ status: 'warping' })
   },
 
@@ -209,10 +204,102 @@ export const useGameStore = create<GameState>((set, get) => ({
       })
   },
 
+  // 🔥 REALTIME ПІДПИСКА
+  subscribeToSector: () => {
+      const { currentSector, userId, realtimeChannel } = get()
+      
+      if (realtimeChannel) supabase.removeChannel(realtimeChannel)
+
+      const channel = supabase.channel(`sector-room-${currentSector}`)
+        .on(
+            'postgres_changes', 
+            { event: '*', schema: 'public', table: 'profiles' }, 
+            (payload) => {
+                const { localObjects } = get()
+                const newProfile = payload.new as any
+                const oldProfile = payload.old as any
+
+                // 1. ГРАВЕЦЬ ПРИБУВ
+                if (newProfile && newProfile.current_sector === currentSector && newProfile.id !== userId) {
+                    if (!localObjects.find(o => o.id === `player-${newProfile.id}`)) {
+                        const newPlayerObj: SpaceObject = {
+                            id: `player-${newProfile.id}`,
+                            type: 'player',
+                            // Ставимо на фіксовану відстань, щоб не з'являлись "перед носом"
+                            distance: 1500, 
+                            scanned: true,
+                            playerName: `Pilot ${newProfile.id.slice(0, 4)}`
+                        }
+                        set({ 
+                            localObjects: [...localObjects, newPlayerObj],
+                            combatLog: [...get().combatLog, `> ALERT: Pilot ${newProfile.id.slice(0,4)} entered sector.`]
+                        })
+                    }
+                }
+
+                // 2. ГРАВЕЦЬ ПОКИНУВ СЕКТОР
+                if (
+                    (payload.eventType === 'UPDATE' && newProfile.current_sector !== currentSector && oldProfile.current_sector === currentSector) ||
+                    (payload.eventType === 'DELETE' && oldProfile.current_sector === currentSector)
+                ) {
+                    const idToRemove = payload.eventType === 'DELETE' ? oldProfile.id : newProfile.id
+                    if (idToRemove !== userId) {
+                        set({ 
+                            localObjects: localObjects.filter(o => o.id !== `player-${idToRemove}`),
+                            combatLog: [...get().combatLog, `> SIGNAL LOST: Pilot ${idToRemove.slice(0,4)} left.`]
+                        })
+                    }
+                }
+            }
+        )
+        .on(
+            'postgres_changes',
+            { event: 'UPDATE', schema: 'public', table: 'sectors', filter: `id=eq.${currentSector}` },
+            (payload) => {
+                // 3. ОНОВЛЕННЯ РЕСУРСІВ (хтось копає)
+                const newData = payload.new as any
+                const { localObjects, sectorResources } = get()
+                
+                set({ sectorResources: { 
+                    iron: newData.iron_amount, 
+                    gold: newData.gold_amount, 
+                    darkMatter: newData.dark_matter_amount 
+                }})
+
+                // Оновлюємо відображення астероїдів
+                const updatedObjects = localObjects.map(obj => {
+                    if (obj.type === 'asteroid' && obj.data) {
+                        // Якщо заліза в базі стало менше, ніж у нас на екрані -> оновлюємо
+                        if (obj.data.resource === 'Iron') return { ...obj, data: { ...obj.data, amount: Math.min(obj.data.amount, newData.iron_amount) } }
+                        if (obj.data.resource === 'Gold') return { ...obj, data: { ...obj.data, amount: Math.min(obj.data.amount, newData.gold_amount) } }
+                        if (obj.data.resource === 'DarkMatter') return { ...obj, data: { ...obj.data, amount: Math.min(obj.data.amount, newData.dark_matter_amount) } }
+                    }
+                    return obj
+                })
+                
+                // Якщо ресурсу стало 0, змінюємо тип на debris
+                const cleanObjects = updatedObjects.map(obj => {
+                    if (obj.type === 'asteroid' && obj.data && obj.data.amount <= 0) {
+                        return { ...obj, type: 'debris' as EntityType }
+                    }
+                    return obj
+                })
+
+                set({ localObjects: cleanObjects })
+            }
+        )
+        .subscribe()
+
+      set({ realtimeChannel: channel })
+  },
+
   scanCurrentSector: async () => {
     const { currentSector, userId } = get()
     set({ inCombat: false, combatLog: [], currentEventId: null })
     get().updatePresence()
+    
+    // Вмикаємо слухача змін
+    get().subscribeToSector()
 
     if (currentSector === '0:0') {
       set({
@@ -268,6 +355,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     const objects: SpaceObject[] = []
 
+    // 1. Завантажуємо гравців, які ВЖЕ там
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
     const { data: players } = await supabase
         .from('profiles').select('id').eq('current_sector', currentSector)
@@ -282,6 +370,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         })
     }
     
+    // 2. Вороги
     for (let i = 0; i < enemyCount; i++) {
         objects.push({ id: `enemy-${i}-${Date.now()}`, type: 'enemy', distance: 2500 + (i * 500), scanned: true, enemyLevel: 1 })
     }
@@ -294,6 +383,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         }) 
     }
 
+    // 3. Астероїди (генеруємо статично, щоб у всіх були однакові ID для синхронізації)
+    // Використовуємо індекс 0, 1, 2, щоб при оновленні по мережі знайти їх
     let asteroidIndex = 0
     if (currentRes.iron > 0) {
         const chunks = currentRes.iron > 300 ? 2 : 1
@@ -318,6 +409,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ localObjects: objects })
   },
 
+  // === ВИПРАВЛЕНО: Додані відсутні методи ===
   scanSystem: () => {
       const { localObjects } = get()
       const updated = localObjects.map(o => ({ ...o, scanned: true }))
@@ -344,7 +436,6 @@ export const useGameStore = create<GameState>((set, get) => ({
           }
           const totalRes = (row.iron_amount || 0) + (row.gold_amount || 0) + (row.dark_matter_amount || 0)
           const hasResources = totalRes > 0 && !isDepleted
-          // 🔥 ДОДАНО: Перевірка на ворогів для карти
           const hasEnemies = (row.enemy_count || 0) > 0
           
           newDetails[row.id] = { id: row.id, hasResources, hasEnemies, isDepleted, lastUpdated: now }
@@ -420,6 +511,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     if ((newSectorResources.iron + newSectorResources.gold + newSectorResources.darkMatter) <= 0) {
         updateData.last_depleted_at = new Date().toISOString()
     }
+    // Це оновлення в БД автоматично розішле подію всім гравцям через Realtime
     supabase.from('sectors').update(updateData).eq('id', currentSector).then()
   },
 
@@ -434,18 +526,14 @@ export const useGameStore = create<GameState>((set, get) => ({
   
   repairHull: () => {
       const { hull, maxHull, credits } = get()
-      // Якщо здоров'я повне - нічого не робимо
       if (hull >= maxHull) return
-
       const damage = maxHull - hull
-      const costPerHp = 10 // Ціна за 1 HP
+      const costPerHp = 10
       const totalCost = damage * costPerHp
 
       if (credits >= totalCost) {
-          // Якщо грошей вистачає на повний ремонт
           set({ credits: credits - totalCost, hull: maxHull })
       } else {
-          // Якщо грошей мало - лагодимо на все, що є
           const amountCanRepair = Math.floor(credits / costPerHp)
           if (amountCanRepair > 0) {
               set({ 
@@ -489,7 +577,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   endCombat: (win) => {
-      const { localObjects, currentEventId, currentSector } = get()
+      const { localObjects, currentEventId, currentSector, maxHull } = get()
       const enemy = localObjects.find(o => o.id === currentEventId)
       const dist = enemy?.distance || 2000
       if (win) {
@@ -507,7 +595,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           })
       } else {
           alert('CRITICAL FAILURE. SHIP DESTROYED.')
-          set({ status: 'hangar', currentSector: '0:0', hull: 100, cargo: { Iron: 0, Gold: 0, DarkMatter: 0 }, inCombat: false, combatLog: [] })
+          set({ status: 'hangar', currentSector: '0:0', hull: maxHull, cargo: { Iron: 0, Gold: 0, DarkMatter: 0 }, inCombat: false, combatLog: [] })
       }
   },
 
