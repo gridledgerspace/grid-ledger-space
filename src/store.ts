@@ -29,19 +29,7 @@ export const SHIP_SPECS: Record<string, {
         price: 0,
         desc: 'Reliable starter. Balanced layout: 3 weapon hardpoints + 3 utility slots.'
     },
-    // 2. БОЙОВИЙ (Покращена версія)
-    'interceptor': { 
-        name: 'MK-2 PREDATOR', 
-        type: 'FIGHTER',
-        maxHull: 300, 
-        armor: 20, 
-        maxCargo: 50, // Трохи більше, ніж у Фенікса
-        maxSlots: 8, // Більше слотів під зброю
-        jumpRange: 2,
-        price: 15000,
-        desc: 'Military grade interceptor. Heavy armor and extended weapon banks.'
-    },
-    // 3. ВАНТАЖНИЙ (Танк)
+    // 2. ВАНТАЖНИЙ (Танк)
     'hauler': { 
         name: 'HV-1 BEHEMOTH', 
         type: 'HAULER',
@@ -49,9 +37,21 @@ export const SHIP_SPECS: Record<string, {
         armor: 40, 
         maxCargo: 500, 
         maxSlots: 3, // Мало слотів (лише захист)
-        jumpRange: 1, 
-        price: 35000,
+        jumpRange: 2, 
+        price: 350000,
         desc: 'Deep space miner. Massive cargo hold protected by thick plating.'
+    },
+    // 3. БОЙОВИЙ (Покращена версія)
+    'interceptor': { 
+        name: 'MK-2 PREDATOR', 
+        type: 'FIGHTER',
+        maxHull: 300, 
+        armor: 20, 
+        maxCargo: 50, // Трохи більше, ніж у Фенікса
+        maxSlots: 8, // Більше слотів під зброю
+        jumpRange: 3,
+        price: 150000,
+        desc: 'Military grade interceptor. Heavy armor and extended weapon banks.'
     },
     // 4. НАУКОВИЙ (Швидкий)
     'explorer': { 
@@ -62,7 +62,7 @@ export const SHIP_SPECS: Record<string, {
         maxCargo: 60, 
         maxSlots: 5, 
         jumpRange: 4, // Дуже далеко стрибає
-        price: 20000,
+        price: 200000,
         desc: 'Advanced warp drive systems. Best for long-range sector mapping.'
     }
 }
