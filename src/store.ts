@@ -215,7 +215,44 @@ export const useGameStore = create<GameState>((set, get) => ({
   realtimeChannel: null,
 
   setStationOpen: (isOpen) => set({ isStationOpen: isOpen }),
-  setUserId: (id) => set({ userId: id }),
+
+  setUserId: async (id) => {
+      set({ userId: id })
+      
+      // Завантажуємо профіль з бази
+      const { data } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', id)
+          .single()
+
+      if (data) {
+          // Якщо в базі є клас корабля, беремо його. Якщо ні - 'scout'
+          const savedClass = data.ship_class || 'scout'
+          const spec = SHIP_SPECS[savedClass] || SHIP_SPECS['scout']
+
+          console.log(`📂 Profile loaded. Ship: ${savedClass}`)
+
+          set({ 
+              credits: data.credits,
+              shipClass: savedClass,
+              
+              // ВАЖЛИВО: Максимальні значення беремо з конфігу (SHIP_SPECS),
+              // щоб вони завжди були правильні для цього класу
+              maxHull: spec.maxHull,
+              maxCargo: spec.maxCargo,
+              jumpRange: spec.jumpRange,
+              
+              // Поточні значення беремо з бази
+              hull: data.hull,
+              cargo: data.cargo || { Iron: 0, Gold: 0, DarkMatter: 0 },
+              
+              // Якщо є збережені модулі - беремо їх
+              modules: data.modules || ['scanner', 'mining_laser']
+          })
+      }
+  },
+
   setTargetSector: (sector) => set({ targetSector: sector }),
 
   updatePresence: async () => {
@@ -663,35 +700,37 @@ export const useGameStore = create<GameState>((set, get) => ({
       const { credits, userId, cargo, shipClass } = get()
       const spec = SHIP_SPECS[newClass]
       
-      if (shipClass === newClass) return // Вже маємо цей корабель
+      if (shipClass === newClass) return 
       if (credits < spec.price) {
           alert('INSUFFICIENT FUNDS!')
           return
       }
 
-      // Перевірка: чи вміститься вантаж у новий корабель?
       const currentCargoAmount = Object.values(cargo).reduce((a, b) => a + b, 0)
       if (currentCargoAmount > spec.maxCargo) {
-          alert(`CANNOT SWITCH: Cargo too heavy! Sell ${currentCargoAmount - spec.maxCargo} tons first.`)
+          alert(`Cargo too heavy! Sell ${currentCargoAmount - spec.maxCargo} tons first.`)
           return
       }
 
-      // Списання грошей та оновлення стейту
       const newCredits = credits - spec.price
+      
+      // Оновлюємо стейт
       set({
           credits: newCredits,
           shipClass: newClass,
           maxHull: spec.maxHull,
-          hull: spec.maxHull, // Новий корабель завжди цілий
+          hull: spec.maxHull, // При покупці корпус повний
           maxCargo: spec.maxCargo,
           jumpRange: spec.jumpRange
       })
 
-      // Збереження в БД
+      // Оновлюємо базу даних
       if (userId) {
           await supabase.from('profiles').update({
               credits: newCredits,
-              ship_class: newClass
+              ship_class: newClass, // <--- Тепер це поле існує в БД!
+              hull: spec.maxHull,
+              max_hull: spec.maxHull
           }).eq('id', userId)
       }
 
