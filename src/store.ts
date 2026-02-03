@@ -284,7 +284,7 @@ export const useGameStore = create<GameState>((set, get) => ({
                 
                 set({ sectorResources: { 
                     iron: newData.iron_amount, 
-                    gold: newData.gold_amount, 
+                    gold: newData.gold_amount,  
                     darkMatter: newData.dark_matter_amount 
                 }})
 
