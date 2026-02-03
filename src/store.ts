@@ -332,7 +332,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
     set({ currentSectorType: 'wild' })
 
-    const { data: sectorData } = await supabase.from('sectors').select('*').eq('id', currentSector).single()
+    const { data: sectorData } = await supabase.from('sectors').select('*').eq('id', currentSector).maybeSingle()
 
     let currentRes = { iron: 0, gold: 0, darkMatter: 0 }
     let enemyCount = 0
