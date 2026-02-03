@@ -1,18 +1,98 @@
 import { useState, useRef, useEffect } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, Stars } from '@react-three/drei'
-import { useGameStore } from '../store'
+import { useGameStore, SHIP_SPECS } from '../store' // Не забудьте додати SHIP_SPECS в імпорт
 import Object3D from './Object3D'
 import StationMenu from './StationMenu'
 import { 
     Navigation, Scan, Pickaxe, Skull, Database, Home, 
     ShoppingBag, ArrowLeftCircle, Box, Trash2, 
-    ChevronRight, ChevronLeft, Target, Menu, X, List, Rocket
+    ChevronRight, ChevronLeft, Target, Menu, X, List, Rocket, Shield
 } from 'lucide-react'
+
+// === КОНСТАНТИ КОРАБЛІВ ===
+const SHIP_COLORS: Record<string, string> = {
+    'scout': '#00f0ff',      
+    'interceptor': '#ff003c', 
+    'hauler': '#ffae00',      
+    'explorer': '#a855f7'     
+}
+
+const SHIP_SPEEDS: Record<string, number> = {
+    'scout': 100,       
+    'interceptor': 110, 
+    'hauler': 60,       // Повільний
+    'explorer': 160     // Дуже швидкий
+}
+
+// === КОКПІТ (HUD) ===
+function CockpitHUD() {
+    // 🔥 ВИПРАВЛЕННЯ: Використовуємо хук без селектора (state:any), щоб TS підтягнув типи
+    const { shipClass, hull, maxHull, cargo, maxCargo } = useGameStore()
+    
+    const spec = SHIP_SPECS[shipClass] || SHIP_SPECS['scout']
+    const color = SHIP_COLORS[shipClass] || '#00f0ff'
+    
+    const shadowStyle = { boxShadow: `0 0 10px ${color}40` }
+    const borderStyle = { borderColor: `${color}80` }
+
+    // 🔥 ВИПРАВЛЕННЯ: Безпечний розрахунок вантажу
+    const currentCargo = Object.values(cargo || {}).reduce((a, b) => a + (b as number), 0)
+
+    return (
+        <div className="absolute top-4 right-4 z-20 flex flex-col items-end gap-2 animate-in slide-in-from-right duration-700 pointer-events-none">
+            {/* SHIP ID CARD */}
+            <div 
+                className="bg-black/60 backdrop-blur-md border-r-4 p-3 pl-6 rounded-l-lg transition-colors duration-500"
+                style={{ ...borderStyle, borderRightColor: color, ...shadowStyle }}
+            >
+                <div className="text-[10px] text-gray-400 font-mono uppercase tracking-widest text-right mb-1">
+                    SYSTEMS ONLINE // {spec.type} CLASS
+                </div>
+                <h2 className="text-xl md:text-2xl font-black font-mono uppercase text-right leading-none transition-colors duration-500" style={{ color: color }}>
+                    {spec.name}
+                </h2>
+            </div>
+
+            {/* MINI STATS */}
+            <div className="flex gap-2">
+                {/* HULL */}
+                <div className="bg-black/60 backdrop-blur-md border border-white/10 p-2 rounded w-24">
+                    <div className="flex items-center gap-2 text-xs font-bold text-gray-400 mb-1">
+                        <Shield size={12} className={hull < maxHull * 0.3 ? 'text-red-500 animate-pulse' : 'text-gray-400'}/> HULL
+                    </div>
+                    <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                        <div 
+                            className="h-full transition-all duration-500"
+                            style={{ width: `${(hull/maxHull)*100}%`, backgroundColor: hull < maxHull * 0.3 ? '#ef4444' : color }}
+                        />
+                    </div>
+                    <div className="text-right text-[10px] font-mono text-white mt-1">{hull}/{maxHull}</div>
+                </div>
+
+                {/* CARGO */}
+                <div className="bg-black/60 backdrop-blur-md border border-white/10 p-2 rounded w-24">
+                    <div className="flex items-center gap-2 text-xs font-bold text-gray-400 mb-1">
+                        <Box size={12}/> CARGO
+                    </div>
+                    <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                        <div 
+                            className="h-full bg-yellow-400 transition-all duration-500"
+                            style={{ width: `${(currentCargo/maxCargo)*100}%` }}
+                        />
+                    </div>
+                     <div className="text-right text-[10px] font-mono text-white mt-1">
+                        {currentCargo}/{maxCargo}
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
 
 // === ДВИГУН РУХУ ===
 function GameLoop() {
-  const { inCombat, status } = useGameStore()
+  const { inCombat, status, shipClass } = useGameStore() // 🔥 Додали shipClass
 
   useFrame((_state, delta) => {
     if (inCombat || status === 'mining') return
@@ -22,21 +102,26 @@ function GameLoop() {
     
     if (objects.length === 0) return
 
-    // Беремо поточну ціль
     const target = objects[0]
     
+    // 🔥 ІНТЕГРАЦІЯ ШВИДКОСТІ КОРАБЛЯ
+    const baseSpeed = SHIP_SPEEDS[shipClass] || 100
+    const speedMultiplier = baseSpeed / 100 // 1.0 для scout, 1.6 для explorer тощо
+
     // Анімація підльоту
-    let approachSpeed = target.distance * 2.5 * delta
-    if (approachSpeed < 150 * delta) approachSpeed = 150 * delta
+    let approachSpeed = target.distance * 2.5 * delta * speedMultiplier
+    
+    // Мінімальна швидкість (теж залежить від двигуна)
+    const minSpeed = 150 * delta * speedMultiplier
+    if (approachSpeed < minSpeed) approachSpeed = minSpeed
 
     const backgroundSpeed = approachSpeed * 0.5
 
     let hasChanges = false
 
     const newObjects = objects.map((obj, index) => {
-        // === ЦІЛЬ (Активний об'єкт, до якого летимо) ===
+        // === ЦІЛЬ ===
         if (index === 0) {
-            // Летимо до нього, поки не стане 200 км
             if (obj.distance > 200) { 
                 const newDist = Math.max(200, obj.distance - approachSpeed)
                 if (Math.abs(newDist - obj.distance) > 0.1) {
@@ -47,16 +132,13 @@ function GameLoop() {
             return obj
         } 
         
-        // === ФОН (Інші об'єкти, що віддаляються) ===
+        // === ФОН ===
         else {
-            // 🔥 ВИПРАВЛЕННЯ ТУТ: Зменшено з 50000 до 4000
-            // Тепер об'єкти не відлітають далі меж сектору
             const SECTOR_LIMIT = 4000 
             
             if (obj.distance < SECTOR_LIMIT) {
                 const newDist = Math.min(SECTOR_LIMIT, obj.distance + backgroundSpeed)
                 
-                // Оновлюємо тільки якщо дистанція дійсно змінилась і ми ще не вперлись в межу
                 if (Math.abs(newDist - obj.distance) > 0.1) {
                     hasChanges = true
                     return { ...obj, distance: newDist }
@@ -74,11 +156,10 @@ function GameLoop() {
   return null
 }
 
-// === ВІЗУАЛІЗАЦІЯ ===
+// === ВІЗУАЛІЗАЦІЯ (Ваша існуюча) ===
 function ActiveObjectVisual({ object, color }: { object: any, color: string }) {
     const groupRef = useRef<any>(null)
     
-    // Розрахунок стартової позиції
     const initialZ = -(object.distance - 200) / 50
 
     useFrame(() => {
@@ -135,36 +216,28 @@ export default function SpaceView() {
     
     useGameStore.setState({ 
         localObjects: newOrder,
-        status: 'space',       // <--- Примусовий запуск двигуна
-        currentEventId: null,  // <--- Закриваємо будь-які вікна
-        inCombat: false        // <--- Скасовуємо бій, якщо втікаємо до іншого об'єкта
+        status: 'space',
+        currentEventId: null,
+        inCombat: false
     })
 
     setMobileListOpen(false)
     setTimeout(() => setIsSwitching(false), 400)
   }
 
-  // 🔥 НОВА ФУНКЦІЯ: Генерує гарні назви для об'єктів
   const getObjectName = (obj: any) => {
       if (!obj.scanned) return 'UNKNOWN SIGNAL'
-
-      if (obj.type === 'asteroid' && obj.data?.resource) {
-          return `${obj.data.resource.toUpperCase()} DEPOSIT`
-      }
-      
+      if (obj.type === 'asteroid' && obj.data?.resource) return `${obj.data.resource.toUpperCase()} DEPOSIT`
       if (obj.type === 'enemy') {
           const classes = ['SCOUT', 'INTERCEPTOR', 'FRIGATE', 'DREADNOUGHT']
           const lvl = obj.enemyLevel || 1
-          // Обмежуємо індекс, щоб не вийти за межі масиву
           const className = classes[Math.min(lvl - 1, classes.length - 1)]
           return `MK-${lvl} ${className}`
       }
-
       if (obj.type === 'station') return 'TRADING STATION'
       if (obj.type === 'container') return 'LOST CARGO'
       if (obj.type === 'player') return obj.playerName || 'UNKNOWN PILOT'
       if (obj.type === 'debris') return 'SPACE DEBRIS'
-
       return obj.type.toUpperCase()
   }
 
@@ -195,6 +268,9 @@ export default function SpaceView() {
   return (
     <div className="h-[100dvh] w-full bg-space-950 relative overflow-hidden flex flex-col md:flex-row">
       
+      {/* 🔥 ДОДАНО: HUD КОКПІТУ */}
+      <CockpitHUD />
+
       {/* 3D СЦЕНА */}
       <div className="absolute inset-0 z-0">
          <Canvas camera={{ position: [0, 0, 8], fov: 60 }}>
@@ -242,7 +318,6 @@ export default function SpaceView() {
                  `}>
                      <div className="flex justify-between items-end mb-3 border-b border-white/10 pb-2">
                          <div className="text-left">
-                            {/* 🔥 ТУТ ВИКОРИСТОВУЄМО НОВУ НАЗВУ */}
                             <h2 className={`text-xl md:text-3xl font-bold font-mono ${activeObj.type === 'enemy' ? 'text-neon-red' : 'text-white'}`}>
                                 {getObjectName(activeObj)}
                             </h2>
@@ -285,103 +360,102 @@ export default function SpaceView() {
                              <button onClick={() => openContainer(activeObj.id)} className="py-3 bg-yellow-500/20 border border-yellow-500 text-yellow-500 text-sm font-bold hover:bg-yellow-500 hover:text-black flex items-center justify-center gap-2">
                                  <Box size={16}/> OPEN
                              </button>
-                         )}
+                          )}
                          {activeObj.scanned && activeObj.type === 'debris' && (
                              <div className="py-3 text-gray-500 text-xs font-mono border border-gray-800">NO ACTIONS AVAILABLE</div>
                          )}
                      </div>
                  </div>
              ) : null}
-          </div>
-      </div>
+         </div>
+     </div>
 
-      {/* МОБІЛЬНЕ НИЖНЄ МЕНЮ */}
-      <div className="md:hidden fixed bottom-0 inset-x-0 h-16 bg-space-950/90 border-t border-white/10 flex items-center justify-around z-30 px-2 backdrop-blur-lg">
-          <button onClick={() => setMobileListOpen(!isMobileListOpen)} className={`flex flex-col items-center gap-1 p-2 w-16 ${isMobileListOpen ? 'text-neon-cyan' : 'text-gray-400'}`}>
-              <List size={20} /> <span className="text-[9px]">LIST</span>
-          </button>
-          <button onClick={() => useGameStore.setState({ status: 'map' })} className="flex flex-col items-center gap-1 p-2 w-16 text-neon-orange">
-              <Navigation size={20} /> <span className="text-[9px]">MAP</span>
-          </button>
-          <div className="flex flex-col items-center gap-1 p-2 w-16 text-gray-500">
-              <Menu size={20} /> <span className="text-[9px]">MENU</span>
-          </div>
-      </div>
+     {/* МОБІЛЬНЕ НИЖНЄ МЕНЮ */}
+     <div className="md:hidden fixed bottom-0 inset-x-0 h-16 bg-space-950/90 border-t border-white/10 flex items-center justify-around z-30 px-2 backdrop-blur-lg">
+         <button onClick={() => setMobileListOpen(!isMobileListOpen)} className={`flex flex-col items-center gap-1 p-2 w-16 ${isMobileListOpen ? 'text-neon-cyan' : 'text-gray-400'}`}>
+             <List size={20} /> <span className="text-[9px]">LIST</span>
+         </button>
+         <button onClick={() => useGameStore.setState({ status: 'map' })} className="flex flex-col items-center gap-1 p-2 w-16 text-neon-orange">
+             <Navigation size={20} /> <span className="text-[9px]">MAP</span>
+         </button>
+         <div className="flex flex-col items-center gap-1 p-2 w-16 text-gray-500">
+             <Menu size={20} /> <span className="text-[9px]">MENU</span>
+         </div>
+     </div>
 
-      {/* МОБІЛЬНИЙ СПИСОК */}
-      {isMobileListOpen && (
-          <div className="md:hidden absolute bottom-16 inset-x-0 bg-space-950/95 border-t border-neon-cyan/30 rounded-t-xl z-20 max-h-[50vh] overflow-y-auto p-3 shadow-[0_-5px_20px_rgba(0,0,0,0.5)]">
-              <div className="flex justify-between items-center mb-3 sticky top-0 bg-space-950/95 py-2 border-b border-white/10">
-                  <h3 className="text-neon-cyan font-mono font-bold text-sm">OBJECTS</h3>
-                  <button onClick={() => setMobileListOpen(false)}><X size={18} className="text-gray-400"/></button>
-              </div>
-              <div className="space-y-2 pb-2">
-                  {localObjects.map(obj => (
-                      <button key={obj.id} onClick={() => handleSelect(obj.id)} className={`w-full p-3 rounded border text-left flex items-center gap-3 ${selectedId === obj.id ? 'bg-neon-cyan/10 border-neon-cyan text-white' : 'border-white/10 text-gray-400'}`}>
-                          {obj.scanned ? getIcon(obj.type) : <div className="w-2 h-2 rounded-full bg-neon-orange animate-pulse"/>}
-                          <div className="flex-1 min-w-0">
-                              <div className="font-bold text-xs truncate">{getObjectName(obj)}</div>
-                              <div className="text-[10px] opacity-70">{Math.floor(obj.distance)} KM</div>
-                          </div>
-                      </button>
-                  ))}
-              </div>
-          </div>
-      )}
+     {/* МОБІЛЬНИЙ СПИСОК */}
+     {isMobileListOpen && (
+         <div className="md:hidden absolute bottom-16 inset-x-0 bg-space-950/95 border-t border-neon-cyan/30 rounded-t-xl z-20 max-h-[50vh] overflow-y-auto p-3 shadow-[0_-5px_20px_rgba(0,0,0,0.5)]">
+             <div className="flex justify-between items-center mb-3 sticky top-0 bg-space-950/95 py-2 border-b border-white/10">
+                 <h3 className="text-neon-cyan font-mono font-bold text-sm">OBJECTS</h3>
+                 <button onClick={() => setMobileListOpen(false)}><X size={18} className="text-gray-400"/></button>
+             </div>
+             <div className="space-y-2 pb-2">
+                 {localObjects.map(obj => (
+                     <button key={obj.id} onClick={() => handleSelect(obj.id)} className={`w-full p-3 rounded border text-left flex items-center gap-3 ${selectedId === obj.id ? 'bg-neon-cyan/10 border-neon-cyan text-white' : 'border-white/10 text-gray-400'}`}>
+                         {obj.scanned ? getIcon(obj.type) : <div className="w-2 h-2 rounded-full bg-neon-orange animate-pulse"/>}
+                         <div className="flex-1 min-w-0">
+                             <div className="font-bold text-xs truncate">{getObjectName(obj)}</div>
+                             <div className="text-[10px] opacity-70">{Math.floor(obj.distance)} KM</div>
+                         </div>
+                     </button>
+                 ))}
+             </div>
+         </div>
+     )}
 
-      {/* ДЕСКТОПНИЙ САЙДБАР */}
-      <div className={`hidden md:flex glass-panel border-l border-neon-cyan/30 flex-col z-20 bg-space-950/90 backdrop-blur-md transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-20' : 'w-80'}`}>
-          <div className={`p-4 border-b flex items-center ${inCombat ? 'border-neon-red/50 bg-neon-red/10' : 'border-white/10'}`}>
-              <button onClick={() => setSidebarCollapsed(!isSidebarCollapsed)} className="mr-2 text-neon-cyan hover:text-white transition-colors">
-                  {isSidebarCollapsed ? <ChevronLeft size={20}/> : <ChevronRight size={20}/>}
-              </button>
-              {!isSidebarCollapsed && (
-                  <h2 className={`${inCombat ? 'text-neon-red animate-pulse' : 'text-neon-cyan'} font-mono font-bold flex items-center gap-2 text-sm`}>
-                      {inCombat ? 'COMBAT' : 'SYSTEM'}
-                  </h2>
-              )}
-          </div>
-          <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
-              {inCombat ? (
-                  <div className="flex flex-col gap-1 font-mono text-xs p-2">
-                      {isSidebarCollapsed ? <Skull className="text-neon-red mx-auto animate-pulse"/> : (
-                          <>
-                            {combatLog.map((log, i) => (<div key={i} className="text-neon-red border-b border-neon-red/10 pb-1 opacity-80">{log}</div>))}
-                            <div ref={logEndRef} />
-                          </>
-                      )}
-                  </div>
-              ) : (
-                  localObjects.map(obj => (
-                    <button key={obj.id} onClick={() => handleSelect(obj.id)} className={`w-full rounded border transition-all group relative overflow-hidden flex items-center ${selectedId === obj.id ? 'bg-neon-cyan/10 border-neon-cyan shadow-sm' : 'bg-transparent border-white/5 hover:bg-white/5'} ${isSidebarCollapsed ? 'p-3 justify-center' : 'p-3 text-left gap-3'}`}>
-                        {selectedId === obj.id && <div className="absolute left-0 top-0 bottom-0 w-1 bg-neon-cyan"/>}
-                        <div className={`rounded bg-space-900 border border-white/10 flex items-center justify-center p-2 ${selectedId === obj.id ? 'text-neon-cyan' : 'text-gray-500 group-hover:text-white'}`}>
-                            {obj.scanned ? getIcon(obj.type) : <div className="w-2 h-2 rounded-full bg-neon-orange animate-pulse"/>}
-                        </div>
-                        {!isSidebarCollapsed && (
-                            <div className="min-w-0">
-                                {/* 🔥 ТУТ ТАКОЖ НОВА НАЗВА */}
-                                <div className={`text-xs font-mono font-bold truncate ${selectedId === obj.id ? 'text-white' : 'text-gray-400 group-hover:text-gray-200'}`}>{getObjectName(obj)}</div>
-                                <div className="text-[10px] text-gray-600 font-mono">{Math.floor(obj.distance)} KM</div>
-                            </div>
-                        )}
-                    </button>
-                  ))
-              )}
-          </div>
-          {!inCombat && !isSidebarCollapsed && (
-              <div className="p-4 border-t border-white/10">
-                  <button onClick={() => useGameStore.setState({ status: 'map' })} className="w-full py-3 bg-space-800 border border-gray-600 text-gray-300 font-mono hover:bg-white/10 hover:text-white flex items-center justify-center gap-2 text-xs">
-                      <Navigation size={14}/> OPEN MAP
-                  </button>
-              </div>
-          )}
-          {!inCombat && isSidebarCollapsed && (
-              <div className="p-4 border-t border-white/10 flex justify-center">
-                  <button onClick={() => useGameStore.setState({ status: 'map' })} className="text-gray-300 hover:text-white"><Navigation size={20}/></button>
-              </div>
-          )}
-      </div>
-    </div>
-  )
+     {/* ДЕСКТОПНИЙ САЙДБАР */}
+     <div className={`hidden md:flex glass-panel border-l border-neon-cyan/30 flex-col z-20 bg-space-950/90 backdrop-blur-md transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-20' : 'w-80'}`}>
+         <div className={`p-4 border-b flex items-center ${inCombat ? 'border-neon-red/50 bg-neon-red/10' : 'border-white/10'}`}>
+             <button onClick={() => setSidebarCollapsed(!isSidebarCollapsed)} className="mr-2 text-neon-cyan hover:text-white transition-colors">
+                 {isSidebarCollapsed ? <ChevronLeft size={20}/> : <ChevronRight size={20}/>}
+             </button>
+             {!isSidebarCollapsed && (
+                 <h2 className={`${inCombat ? 'text-neon-red animate-pulse' : 'text-neon-cyan'} font-mono font-bold flex items-center gap-2 text-sm`}>
+                     {inCombat ? 'COMBAT' : 'SYSTEM'}
+                 </h2>
+             )}
+         </div>
+         <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
+             {inCombat ? (
+                 <div className="flex flex-col gap-1 font-mono text-xs p-2">
+                     {isSidebarCollapsed ? <Skull className="text-neon-red mx-auto animate-pulse"/> : (
+                         <>
+                           {combatLog.map((log, i) => (<div key={i} className="text-neon-red border-b border-neon-red/10 pb-1 opacity-80">{log}</div>))}
+                           <div ref={logEndRef} />
+                         </>
+                     )}
+                 </div>
+             ) : (
+                 localObjects.map(obj => (
+                   <button key={obj.id} onClick={() => handleSelect(obj.id)} className={`w-full rounded border transition-all group relative overflow-hidden flex items-center ${selectedId === obj.id ? 'bg-neon-cyan/10 border-neon-cyan shadow-sm' : 'bg-transparent border-white/5 hover:bg-white/5'} ${isSidebarCollapsed ? 'p-3 justify-center' : 'p-3 text-left gap-3'}`}>
+                       {selectedId === obj.id && <div className="absolute left-0 top-0 bottom-0 w-1 bg-neon-cyan"/>}
+                       <div className={`rounded bg-space-900 border border-white/10 flex items-center justify-center p-2 ${selectedId === obj.id ? 'text-neon-cyan' : 'text-gray-500 group-hover:text-white'}`}>
+                           {obj.scanned ? getIcon(obj.type) : <div className="w-2 h-2 rounded-full bg-neon-orange animate-pulse"/>}
+                       </div>
+                       {!isSidebarCollapsed && (
+                           <div className="min-w-0">
+                               <div className={`text-xs font-mono font-bold truncate ${selectedId === obj.id ? 'text-white' : 'text-gray-400 group-hover:text-gray-200'}`}>{getObjectName(obj)}</div>
+                               <div className="text-[10px] text-gray-600 font-mono">{Math.floor(obj.distance)} KM</div>
+                           </div>
+                       )}
+                   </button>
+                 ))
+             )}
+         </div>
+         {!inCombat && !isSidebarCollapsed && (
+             <div className="p-4 border-t border-white/10">
+                 <button onClick={() => useGameStore.setState({ status: 'map' })} className="w-full py-3 bg-space-800 border border-gray-600 text-gray-300 font-mono hover:bg-white/10 hover:text-white flex items-center justify-center gap-2 text-xs">
+                     <Navigation size={14}/> OPEN MAP
+                 </button>
+             </div>
+         )}
+         {!inCombat && isSidebarCollapsed && (
+             <div className="p-4 border-t border-white/10 flex justify-center">
+                 <button onClick={() => useGameStore.setState({ status: 'map' })} className="text-gray-300 hover:text-white"><Navigation size={20}/></button>
+             </div>
+         )}
+     </div>
+   </div>
+ )
 }
