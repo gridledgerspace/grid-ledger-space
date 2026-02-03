@@ -280,7 +280,7 @@ export const useGameStore = create<GameState>((set, get) => ({
                 // ... (Логіка ресурсів залишається без змін)
                 console.log('💎 Resource update:', payload.new)
                 const newData = payload.new as any
-                const { localObjects, sectorResources } = get()
+                const { localObjects } = get()
                 
                 set({ sectorResources: { 
                     iron: newData.iron_amount, 
