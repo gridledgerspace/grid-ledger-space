@@ -6,11 +6,65 @@ export type EntityType = 'asteroid' | 'enemy' | 'station' | 'empty' | 'debris' |
 export type ResourceType = 'Iron' | 'Gold' | 'DarkMatter'
 
 // КОНФІГУРАЦІЯ КОРАБЛІВ
-export const SHIP_SPECS: Record<string, { maxHull: number, maxCargo: number, name: string }> = {
-    'scout': { name: 'MK-1 SCOUT', maxHull: 100, maxCargo: 50 },
-    'frigate': { name: 'MK-2 FRIGATE', maxHull: 250, maxCargo: 150 },
-    'hauler': { name: 'HV-1 HAULER', maxHull: 150, maxCargo: 500 },
-    'destroyer': { name: 'MK-3 DESTROYER', maxHull: 500, maxCargo: 80 }
+export const SHIP_SPECS: Record<string, { 
+    name: string, 
+    type: string,
+    maxHull: number, 
+    armor: number, 
+    maxCargo: number, 
+    maxSlots: number,
+    jumpRange: number,
+    price: number,
+    desc: string
+}> = {
+    // 1. ВАШ СТАРТОВИЙ КОРАБЕЛЬ
+    'scout': { 
+        name: 'PHOENIX', 
+        type: 'STARTER',
+        maxHull: 100, 
+        armor: 0,
+        maxCargo: 30, 
+        maxSlots: 6, // 3 зброї + 3 модулі
+        jumpRange: 2, 
+        price: 0,
+        desc: 'Reliable starter. Balanced layout: 3 weapon hardpoints + 3 utility slots.'
+    },
+    // 2. БОЙОВИЙ (Покращена версія)
+    'interceptor': { 
+        name: 'MK-2 PREDATOR', 
+        type: 'FIGHTER',
+        maxHull: 300, 
+        armor: 20, 
+        maxCargo: 50, // Трохи більше, ніж у Фенікса
+        maxSlots: 8, // Більше слотів під зброю
+        jumpRange: 2,
+        price: 15000,
+        desc: 'Military grade interceptor. Heavy armor and extended weapon banks.'
+    },
+    // 3. ВАНТАЖНИЙ (Танк)
+    'hauler': { 
+        name: 'HV-1 BEHEMOTH', 
+        type: 'HAULER',
+        maxHull: 600, 
+        armor: 40, 
+        maxCargo: 500, 
+        maxSlots: 3, // Мало слотів (лише захист)
+        jumpRange: 1, 
+        price: 35000,
+        desc: 'Deep space miner. Massive cargo hold protected by thick plating.'
+    },
+    // 4. НАУКОВИЙ (Швидкий)
+    'explorer': { 
+        name: 'NX-5 VELOCITY', 
+        type: 'EXPLORER',
+        maxHull: 150, 
+        armor: 5, 
+        maxCargo: 60, 
+        maxSlots: 5, 
+        jumpRange: 4, // Дуже далеко стрибає
+        price: 20000,
+        desc: 'Advanced warp drive systems. Best for long-range sector mapping.'
+    }
 }
 
 export interface SpaceObject {
@@ -128,20 +182,22 @@ interface GameState {
   openContainer: (id: string) => void
   closeEvent: () => void
   setUserId: (id: string) => void
+  buyShip: (shipClass: string) => void
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
   status: 'hangar',
-  credits: 1000,
+  credits: 1000, // Стартовий капітал
   
-  shipClass: 'scout', 
+  // 🔥 Початкові параметри (під Фенікс)
+  shipClass: 'scout', // Це ID нашого Фенікса
   hull: 100, 
   maxHull: 100,
   
   jumpRange: 1, 
   cargo: { Iron: 0, Gold: 0, DarkMatter: 0 },
-  maxCargo: 50,
-  modules: ['scanner', 'mining_laser'],
+  maxCargo: 30, // Трюм Фенікса
+  modules: ['scanner', 'mining_laser'], // Стартові модулі
   currentSectorType: 'wild',
   currentSector: '0:0',
   targetSector: null,
@@ -574,18 +630,72 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   playerAttack: () => {
-      const { enemyHp, combatLog, hull } = get()
+      const { enemyHp, combatLog, hull, shipClass } = get()
+      const specs = SHIP_SPECS[shipClass] || SHIP_SPECS['scout']
+      
+      // Гравць атакує
       const dmg = Math.floor(Math.random() * 10) + 15 
       const newEnemyHp = enemyHp - dmg
       const logs = [...combatLog, `> You fired laser: -${dmg} HP`]
+      
       if (newEnemyHp <= 0) {
           get().endCombat(true)
       } else {
-          const enemyDmg = Math.floor(Math.random() * 8) + 5
+          // Ворог атакує у відповідь
+          let enemyDmg = Math.floor(Math.random() * 8) + 10
+          
+          // 🔥 Розрахунок броні
+          if (specs.armor > 0) {
+              const reduced = Math.floor(enemyDmg * (1 - specs.armor / 100))
+              logs.push(`> Armor absorbed ${enemyDmg - reduced} damage.`)
+              enemyDmg = reduced
+          }
+
           const newHull = hull - enemyDmg
-          set({ enemyHp: newEnemyHp, hull: newHull, combatLog: [...logs, `> Enemy returned fire: -${enemyDmg} HULL`] })
+          set({ enemyHp: newEnemyHp, hull: newHull, combatLog: [...logs, `> Enemy hit you: -${enemyDmg} HULL`] })
+          
           if (newHull <= 0) get().endCombat(false)
       }
+  },
+
+  // 🔥 НОВА ФУНКЦІЯ КУПІВЛІ
+  buyShip: async (newClass) => {
+      const { credits, userId, cargo, shipClass } = get()
+      const spec = SHIP_SPECS[newClass]
+      
+      if (shipClass === newClass) return // Вже маємо цей корабель
+      if (credits < spec.price) {
+          alert('INSUFFICIENT FUNDS!')
+          return
+      }
+
+      // Перевірка: чи вміститься вантаж у новий корабель?
+      const currentCargoAmount = Object.values(cargo).reduce((a, b) => a + b, 0)
+      if (currentCargoAmount > spec.maxCargo) {
+          alert(`CANNOT SWITCH: Cargo too heavy! Sell ${currentCargoAmount - spec.maxCargo} tons first.`)
+          return
+      }
+
+      // Списання грошей та оновлення стейту
+      const newCredits = credits - spec.price
+      set({
+          credits: newCredits,
+          shipClass: newClass,
+          maxHull: spec.maxHull,
+          hull: spec.maxHull, // Новий корабель завжди цілий
+          maxCargo: spec.maxCargo,
+          jumpRange: spec.jumpRange
+      })
+
+      // Збереження в БД
+      if (userId) {
+          await supabase.from('profiles').update({
+              credits: newCredits,
+              ship_class: newClass
+          }).eq('id', userId)
+      }
+
+      alert(`PURCHASE SUCCESSFUL! You are now captain of a ${spec.name}.`)
   },
 
   tryFlee: () => {
