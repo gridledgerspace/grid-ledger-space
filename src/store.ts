@@ -50,7 +50,7 @@ export const SHIP_SPECS: Record<string, {
         maxCargo: 50, // Трохи більше, ніж у Фенікса
         maxSlots: 8, // Більше слотів під зброю
         jumpRange: 3,
-        price: 150000,
+        price: 550000,
         desc: 'Military grade interceptor. Heavy armor and extended weapon banks.'
     },
     // 4. НАУКОВИЙ (Швидкий)
@@ -62,7 +62,7 @@ export const SHIP_SPECS: Record<string, {
         maxCargo: 60, 
         maxSlots: 5, 
         jumpRange: 4, // Дуже далеко стрибає
-        price: 200000,
+        price: 550000,
         desc: 'Advanced warp drive systems. Best for long-range sector mapping.'
     }
 }
