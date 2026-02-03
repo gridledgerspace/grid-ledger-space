@@ -25,7 +25,7 @@ export const SHIP_SPECS: Record<string, {
         armor: 0,
         maxCargo: 30, 
         maxSlots: 6, // 3 зброї + 3 модулі
-        jumpRange: 2, 
+        jumpRange: 1, 
         price: 0,
         desc: 'Reliable starter. Balanced layout: 3 weapon hardpoints + 3 utility slots.'
     },
