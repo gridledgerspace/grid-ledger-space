@@ -36,9 +36,9 @@ export const SHIP_SPECS: Record<string, {
         maxHull: 600, 
         armor: 40, 
         maxCargo: 500, 
-        maxSlots: 3, // Мало слотів (лише захист)
-        jumpRange: 2, 
-        price: 350000,
+        maxSlots: 3, // Мало слотів
+        jumpRange: 2,
+        price: 350000, 
         desc: 'Deep space miner. Massive cargo hold protected by thick plating.'
     },
     // 3. БОЙОВИЙ (Покращена версія)
