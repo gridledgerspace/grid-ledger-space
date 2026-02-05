@@ -1,20 +1,23 @@
 import { useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Stars, Float } from '@react-three/drei'
-import { useGameStore, SHIP_SPECS, type LootItem } from '../store' // 🔥 ВИПРАВЛЕНО ІМПОРТ ТИПУ
+import { useGameStore, SHIP_SPECS } from '../store'
+import type { LootItem } from '../store' // 🔥 ВИПРАВЛЕНО ІМПОРТ
 import Object3D from './Object3D'
 import { 
-    Zap, Box, Activity, Crosshair, Shield, Settings, Grid, LogOut 
+    Zap, Box, Activity, Crosshair, Shield, Settings, 
+    Rocket, ChevronDown, LogOut 
 } from 'lucide-react'
 
-// Кольори кораблів
 const SHIP_COLORS: Record<string, string> = {
     'scout': '#00f0ff', 'interceptor': '#ff003c', 'hauler': '#ffae00', 'explorer': '#a855f7'     
 }
 
 export default function HangarInterface() {
   const { status, shipClass, hull, maxHull, cargo, maxCargo, credits, inventory, equipped, unequipItem, equipItem } = useGameStore((state: any) => state)
-  const [activeTab, setActiveTab] = useState<'overview' | 'fitting' | 'cargo'>('overview')
+  
+  // activePanel: null (головний екран), 'fitting', 'cargo'
+  const [activePanel, setActivePanel] = useState<'fitting' | 'cargo' | null>(null)
   const [selectedItem, setSelectedItem] = useState<LootItem | null>(null)
 
   const spec = SHIP_SPECS[shipClass] || SHIP_SPECS['scout']
@@ -22,224 +25,273 @@ export default function HangarInterface() {
 
   if (status !== 'hangar') return null
 
-  // Helper для слотів
+  // --- RENDERING HELPERS ---
   const renderSlot = (slotIndex: number, type: 'weapon' | 'module') => {
       const slotId = `${type}-${slotIndex}`
       const item = equipped[slotId]
 
       return (
           <div key={slotId} className="relative group">
-              <div className={`w-16 h-16 border rounded bg-black/50 flex items-center justify-center transition-all ${item ? 'border-neon-cyan' : 'border-white/10 hover:border-white/30'}`}>
+              <div 
+                className={`w-14 h-14 md:w-16 md:h-16 border rounded-lg bg-black/40 backdrop-blur-md flex items-center justify-center transition-all relative overflow-hidden
+                    ${item ? 'border-neon-cyan shadow-[0_0_10px_rgba(0,240,255,0.2)]' : 'border-white/10'}
+                    ${!item && selectedItem && selectedItem.type === type ? 'border-green-500 animate-pulse bg-green-500/10' : ''}
+                `}
+                onClick={() => {
+                    if (!item && selectedItem && selectedItem.type === type) {
+                        equipItem(selectedItem, slotId)
+                        setSelectedItem(null)
+                    }
+                }}
+              >
                   {item ? (
-                      <div className="text-center">
-                          <Box size={20} className={type === 'weapon' ? 'text-red-500' : 'text-blue-500'} />
-                          <div className="text-[9px] mt-1 text-white truncate max-w-[50px]">{item.name}</div>
+                      <div className="flex flex-col items-center justify-center p-1">
+                          <Box size={18} className={type === 'weapon' ? 'text-red-500' : 'text-purple-400'} />
+                          <div className="text-[8px] text-white truncate w-full text-center mt-1 leading-none">{item.name}</div>
                       </div>
                   ) : (
-                      <div className="text-white/10 text-[10px] uppercase">{type}</div>
+                      <div className="text-white/20 text-[8px] uppercase font-mono tracking-widest">{type}</div>
+                  )}
+
+                  {/* Кнопка зняти предмет */}
+                  {item && (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); unequipItem(slotId); }}
+                        className="absolute top-0 right-0 p-1 bg-red-500/80 hover:bg-red-500 text-white rounded-bl-lg backdrop-blur-sm z-10"
+                      >
+                          <LogOut size={10}/>
+                      </button>
                   )}
               </div>
-              
-              {/* Дії при кліку */}
-              {item && (
-                  <button 
-                    onClick={() => unequipItem(slotId)}
-                    className="absolute -top-2 -right-2 bg-red-500 rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                      <LogOut size={10} className="text-white"/>
-                  </button>
-              )}
-              
-              {/* Якщо обрано предмет в інвентарі, показуємо кнопку "Equip" */}
-              {!item && selectedItem && selectedItem.type === type && (
-                  <button 
-                    onClick={() => { equipItem(selectedItem, slotId); setSelectedItem(null); }}
-                    className="absolute inset-0 bg-green-500/20 hover:bg-green-500/40 flex items-center justify-center text-green-400 font-bold text-xs animate-pulse"
-                  >
-                      EQUIP
-                  </button>
-              )}
           </div>
       )
   }
 
   return (
-    <div className="absolute inset-0 z-50 bg-black text-white flex flex-col md:flex-row overflow-hidden">
+    <div className="absolute inset-0 z-10 bg-black text-white overflow-hidden">
         
-        {/* === LEFT SIDEBAR (SHIP PREVIEW) === */}
-        <div className="w-full md:w-1/3 bg-space-950 border-r border-white/10 flex flex-col relative">
-            <div className="p-6 border-b border-white/10">
-                <h1 className="text-3xl font-black font-mono uppercase" style={{ color: color }}>{spec.name}</h1>
-                <p className="text-gray-500 text-xs tracking-[0.2em] font-mono">HANGAR BAY // SECTOR 0:0</p>
-            </div>
-
-            {/* 3D Model Container */}
-            <div className="flex-1 relative bg-[radial-gradient(circle_at_center,#1a1a2e_0%,#000000_100%)]">
-                <Canvas camera={{ position: [2, 2, 5], fov: 45 }}>
-                    <ambientLight intensity={0.5} />
-                    <pointLight position={[10, 10, 10]} intensity={1} />
-                    <pointLight position={[-5, 0, -5]} intensity={2} color={color} />
-                    <Float speed={2} rotationIntensity={0.5}>
-                        <group scale={1.5}><Object3D type="player" color={color} /></group>
-                    </Float>
-                    <OrbitControls enableZoom={false} autoRotate autoRotateSpeed={0.5}/>
-                    <Stars radius={50} count={1000} factor={2} fade />
-                </Canvas>
+        {/* === 1. 3D BACKGROUND (Завжди на фоні) === */}
+        <div className="absolute inset-0 z-0 bg-[radial-gradient(circle_at_center,#121212_0%,#000000_100%)]">
+            <Canvas camera={{ position: [2, 2, 6], fov: 45 }}>
+                <ambientLight intensity={0.5} />
+                <pointLight position={[10, 10, 10]} intensity={1} />
+                <pointLight position={[-5, 0, -5]} intensity={2} color={color} />
                 
-                {/* Stats Overlay */}
-                <div className="absolute bottom-4 left-4 right-4 grid grid-cols-2 gap-2">
-                    <div className="bg-black/60 p-2 border border-white/10 rounded backdrop-blur-md">
-                        <div className="text-[10px] text-gray-400 font-bold">HULL</div>
-                        <div className="text-neon-cyan font-mono">{hull} / {maxHull}</div>
-                    </div>
-                    <div className="bg-black/60 p-2 border border-white/10 rounded backdrop-blur-md">
-                        <div className="text-[10px] text-gray-400 font-bold">CARGO</div>
-                        <div className="text-yellow-400 font-mono">{Object.values(cargo).reduce((a:any,b:any)=>a+b,0)} / {maxCargo}</div>
+                {/* Корабель трохи зсуваємо вгору, щоб панелі знизу не перекривали його повністю */}
+                <Float speed={2} rotationIntensity={0.2} floatIntensity={0.5}>
+                    <group position={[0, 0.5, 0]} scale={1.3}>
+                        <Object3D type="player" color={color} />
+                    </group>
+                </Float>
+                
+                <OrbitControls enableZoom={false} enablePan={false} autoRotate autoRotateSpeed={0.3} minPolarAngle={Math.PI/3} maxPolarAngle={Math.PI/2} />
+                <Stars radius={100} count={2000} factor={3} fade />
+            </Canvas>
+        </div>
+
+        {/* === 2. TOP HEADER (Інформація) === */}
+        <div className="absolute top-0 left-0 right-0 z-20 p-4 md:p-8 flex justify-between items-start pointer-events-none">
+            {/* Ліво: Назва */}
+            <div className="pointer-events-auto">
+                <div className="flex items-center gap-3 mb-1">
+                    <div className="w-1 h-8 bg-neon-cyan"></div>
+                    <div>
+                        <h1 className="text-2xl md:text-4xl font-black font-mono uppercase leading-none" style={{ color: color, textShadow: `0 0 20px ${color}60` }}>
+                            {spec.name}
+                        </h1>
+                        <p className="text-[10px] text-gray-400 font-mono tracking-[0.3em] uppercase">
+                            Home Base // Sector 0:0
+                        </p>
                     </div>
                 </div>
             </div>
 
-            <div className="p-6 border-t border-white/10">
-                <button 
-                    onClick={() => useGameStore.setState({ status: 'space' })}
-                    className="w-full py-4 bg-neon-orange text-black font-black text-xl tracking-widest hover:bg-white transition-all clip-path-polygon"
-                >
-                    LAUNCH SHIP
-                </button>
+            {/* Право: Кредити та кнопка виходу */}
+            <div className="flex flex-col items-end gap-2 pointer-events-auto">
+                <div className="bg-black/60 border border-neon-cyan/30 px-4 py-2 rounded backdrop-blur-md">
+                    <div className="text-xs text-neon-cyan font-bold uppercase tracking-widest">Credits</div>
+                    <div className="text-xl font-mono text-white">{credits.toLocaleString()}</div>
+                </div>
             </div>
         </div>
 
-        {/* === RIGHT CONTENT (TABS) === */}
-        <div className="flex-1 flex flex-col bg-black/95">
-            {/* Tab Navigation */}
-            <div className="flex border-b border-white/10">
-                {['overview', 'fitting', 'cargo'].map((tab) => (
-                    <button 
-                        key={tab}
-                        onClick={() => setActiveTab(tab as any)}
-                        className={`px-8 py-4 text-sm font-bold uppercase tracking-wider transition-all border-r border-white/10
-                            ${activeTab === tab ? 'bg-white/10 text-white border-b-2 border-b-neon-cyan' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}
-                        `}
-                    >
-                        {tab}
-                    </button>
-                ))}
-                <div className="flex-1 flex justify-end items-center px-6">
-                    <span className="text-neon-cyan font-mono font-bold text-xl">{credits.toLocaleString()} CR</span>
-                </div>
-            </div>
-
-            {/* Tab Content */}
-            <div className="flex-1 p-6 overflow-y-auto custom-scrollbar relative">
-                
-                {/* 1. OVERVIEW TAB */}
-                {activeTab === 'overview' && (
-                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-                        <h3 className="text-white font-mono text-lg border-l-4 border-neon-cyan pl-3 mb-4">SHIP STATISTICS</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <StatCard icon={<Shield/>} label="Armor Rating" value={`${spec.armor}%`} desc="Damage reduction from incoming fire" />
-                            <StatCard icon={<Zap/>} label="Warp Drive" value={`MK-${spec.jumpRange}`} desc="Maximum jump distance in sectors" />
-                            <StatCard icon={<Crosshair/>} label="Weapon Slots" value={spec.maxSlots} desc="Available hardpoints for turrets" />
-                            <StatCard icon={<Activity/>} label="Signature" value="LOW" desc="Enemy detection chance" />
-                        </div>
+        {/* === 3. MAIN CONTENT (Panels) === */}
+        
+        {/* Панель ФІТИНГУ (Виїжджає знизу) */}
+        {activePanel === 'fitting' && (
+            <div className="absolute inset-x-0 bottom-[80px] top-24 z-20 px-4 md:px-20 pb-4 flex flex-col justify-end pointer-events-none">
+                <div className="bg-black/80 backdrop-blur-xl border-t-2 border-neon-cyan rounded-t-2xl shadow-[0_-10px_40px_rgba(0,0,0,0.8)] h-full max-h-[600px] pointer-events-auto overflow-hidden flex flex-col animate-in slide-in-from-bottom-10 duration-300">
+                    
+                    {/* Заголовок панелі */}
+                    <div className="p-4 border-b border-white/10 flex justify-between items-center bg-white/5">
+                        <h2 className="text-neon-cyan font-bold font-mono text-lg flex items-center gap-2">
+                            <Settings className="animate-spin-slow"/> SHIP OUTFITTING
+                        </h2>
+                        <button onClick={() => setActivePanel(null)} className="p-2 hover:text-red-500 transition-colors"><ChevronDown/></button>
                     </div>
-                )}
 
-                {/* 2. FITTING TAB (Інвентар + Слоти) */}
-                {activeTab === 'fitting' && (
-                    <div className="flex flex-col h-full animate-in fade-in slide-in-from-bottom-4">
-                        {/* SHIP SLOTS */}
-                        <div className="mb-8">
-                            <h3 className="text-white font-mono text-sm mb-4 flex items-center gap-2">
-                                <Settings size={16} className="text-neon-cyan"/> EQUIPPED MODULES
-                            </h3>
-                            <div className="flex gap-4 flex-wrap">
-                                {/* Генеруємо слоти (наприклад 3 зброї, 3 модулі) */}
-                                <div className="flex gap-2 p-4 border border-white/10 rounded bg-white/5">
-                                    <div className="text-[10px] text-gray-500 w-full mb-2">HARDPOINTS</div>
-                                    {[0, 1, 2].map(i => renderSlot(i, 'weapon'))}
-                                </div>
-                                <div className="flex gap-2 p-4 border border-white/10 rounded bg-white/5">
-                                    <div className="text-[10px] text-gray-500 w-full mb-2">UTILITY</div>
-                                    {[0, 1, 2].map(i => renderSlot(i, 'module'))}
-                                </div>
+                    <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+                        {/* 1. SLOTS SECTION */}
+                        <div className="mb-6">
+                            <div className="text-xs text-gray-500 font-bold mb-3 uppercase tracking-wider flex items-center gap-2">
+                                <Crosshair size={14}/> Active Hardpoints
+                            </div>
+                            <div className="flex flex-wrap gap-3">
+                                {/* Згенеруємо слоти згідно з класом корабля */}
+                                {Array.from({ length: Math.ceil(spec.maxSlots / 2) }).map((_, i) => renderSlot(i, 'weapon'))}
                             </div>
                         </div>
 
-                        {/* INVENTORY GRID */}
-                        <div className="flex-1">
-                            <h3 className="text-white font-mono text-sm mb-4 flex items-center gap-2">
-                                <Grid size={16} className="text-neon-cyan"/> WAREHOUSE INVENTORY
-                            </h3>
+                        <div className="mb-6">
+                            <div className="text-xs text-gray-500 font-bold mb-3 uppercase tracking-wider flex items-center gap-2">
+                                <Zap size={14}/> Module Slots
+                            </div>
+                            <div className="flex flex-wrap gap-3">
+                                {Array.from({ length: Math.floor(spec.maxSlots / 2) }).map((_, i) => renderSlot(i, 'module'))}
+                            </div>
+                        </div>
+
+                        {/* 2. INVENTORY SECTION */}
+                        <div>
+                            <div className="text-xs text-gray-500 font-bold mb-3 uppercase tracking-wider flex items-center gap-2 border-t border-white/10 pt-4">
+                                <Box size={14}/> Warehouse Storage
+                            </div>
+                            
                             {inventory.length === 0 ? (
-                                <div className="text-gray-600 font-mono text-sm border border-dashed border-gray-800 p-8 text-center rounded">
-                                    NO ITEMS IN WAREHOUSE
+                                <div className="text-center py-8 text-gray-600 font-mono text-xs border border-dashed border-white/10 rounded">
+                                    WAREHOUSE EMPTY
                                 </div>
                             ) : (
-                                <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
+                                <div className="grid grid-cols-5 md:grid-cols-8 gap-2">
                                     {inventory.map((item: LootItem) => (
                                         <button 
                                             key={item.id}
                                             onClick={() => setSelectedItem(selectedItem?.id === item.id ? null : item)}
-                                            className={`relative p-3 border rounded aspect-square flex flex-col items-center justify-center transition-all
-                                                ${selectedItem?.id === item.id ? 'bg-neon-cyan/20 border-neon-cyan ring-1 ring-neon-cyan' : 'bg-white/5 border-white/10 hover:border-white/30'}
+                                            className={`aspect-square rounded border flex flex-col items-center justify-center p-1 transition-all relative
+                                                ${selectedItem?.id === item.id ? 'bg-neon-cyan/20 border-neon-cyan' : 'bg-white/5 border-white/10 hover:border-white/30'}
                                             `}
                                         >
-                                            <Box className={item.type === 'weapon' ? 'text-red-400' : 'text-purple-400'} size={24}/>
-                                            <div className="text-[10px] text-gray-400 mt-2 truncate w-full text-center">{item.name}</div>
-                                            {selectedItem?.id === item.id && (
-                                                <div className="absolute top-1 right-1 w-2 h-2 bg-neon-cyan rounded-full animate-pulse"/>
-                                            )}
+                                            <Box size={20} className={item.type === 'weapon' ? 'text-red-400' : 'text-purple-400'}/>
+                                            {selectedItem?.id === item.id && <div className="absolute top-1 right-1 w-1.5 h-1.5 bg-neon-cyan rounded-full animate-pulse"/>}
                                         </button>
                                     ))}
                                 </div>
                             )}
-                            
+
+                            {/* Інформація про вибраний предмет */}
                             {selectedItem && (
-                                <div className="mt-4 p-4 bg-black/40 border border-white/10 rounded flex justify-between items-center animate-in slide-in-from-bottom-2">
+                                <div className="mt-4 p-3 bg-neon-cyan/5 border border-neon-cyan/30 rounded flex justify-between items-center animate-in fade-in">
                                     <div>
-                                        <div className="text-neon-cyan font-bold">{selectedItem.name}</div>
-                                        <div className="text-xs text-gray-500 uppercase">{selectedItem.type}</div>
+                                        <div className="text-neon-cyan font-bold text-sm">{selectedItem.name}</div>
+                                        <div className="text-[10px] text-gray-400 uppercase">Tap an empty slot above to equip</div>
                                     </div>
-                                    <div className="text-xs text-gray-400">
-                                        Select an empty slot above to equip
+                                    <div className="px-2 py-1 bg-neon-cyan text-black text-xs font-bold rounded">
+                                        SELECTED
                                     </div>
                                 </div>
                             )}
                         </div>
                     </div>
-                )}
+                </div>
+            </div>
+        )}
 
-                {/* 3. CARGO TAB (Старий карго) */}
-                {activeTab === 'cargo' && (
-                    <div className="animate-in fade-in slide-in-from-bottom-4">
-                        <h3 className="text-white font-mono text-lg border-l-4 border-yellow-500 pl-3 mb-4">RESOURCE HOLD</h3>
+        {/* Панель ВАНТАЖУ */}
+        {activePanel === 'cargo' && (
+            <div className="absolute inset-x-0 bottom-[80px] top-1/2 z-20 px-4 md:px-20 pb-4 flex flex-col justify-end pointer-events-none">
+                <div className="bg-black/80 backdrop-blur-xl border-t-2 border-yellow-500 rounded-t-2xl shadow-[0_-10px_40px_rgba(0,0,0,0.8)] h-full pointer-events-auto overflow-hidden flex flex-col animate-in slide-in-from-bottom-10 duration-300">
+                    <div className="p-4 border-b border-white/10 flex justify-between items-center bg-white/5">
+                        <h2 className="text-yellow-500 font-bold font-mono text-lg flex items-center gap-2">
+                            <Box/> CARGO HOLD
+                        </h2>
+                        <button onClick={() => setActivePanel(null)} className="p-2 hover:text-white transition-colors"><ChevronDown/></button>
+                    </div>
+                    <div className="p-6 overflow-y-auto">
+                        <div className="flex justify-between items-center mb-4 text-xs font-mono text-gray-400">
+                            <span>CAPACITY</span>
+                            <span>{Object.values(cargo).reduce((a:any,b:any)=>a+b,0)} / {maxCargo} T</span>
+                        </div>
                         <div className="space-y-2">
                             {Object.entries(cargo).map(([name, amount]) => (
-                                <div key={name} className="flex justify-between items-center p-4 bg-white/5 border border-white/10 rounded">
-                                    <span className="font-bold text-gray-300">{name}</span>
-                                    <span className="font-mono text-yellow-400 font-bold">{amount as number} T</span>
+                                <div key={name} className="flex justify-between items-center p-4 bg-white/5 border border-white/10 rounded hover:bg-white/10 transition-colors">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded bg-yellow-500/20 flex items-center justify-center text-yellow-500 font-bold text-xs">
+                                            {name[0]}
+                                        </div>
+                                        <span className="font-bold text-gray-300">{name}</span>
+                                    </div>
+                                    <span className="font-mono text-white font-bold text-lg">{amount as number}</span>
                                 </div>
                             ))}
                         </div>
                     </div>
-                )}
-
+                </div>
             </div>
+        )}
+
+
+        {/* === 4. BOTTOM NAVIGATION BAR (Головне меню) === */}
+        <div className="absolute bottom-0 inset-x-0 h-20 bg-space-950/90 backdrop-blur-xl border-t border-white/10 z-30 flex items-center justify-around pb-2 px-2">
+            
+            {/* Кнопка Фітингу */}
+            <button 
+                onClick={() => setActivePanel(activePanel === 'fitting' ? null : 'fitting')}
+                className={`flex flex-col items-center gap-1 p-2 w-20 transition-all ${activePanel === 'fitting' ? 'text-neon-cyan -translate-y-2' : 'text-gray-400 hover:text-white'}`}
+            >
+                <div className={`p-3 rounded-full ${activePanel === 'fitting' ? 'bg-neon-cyan text-black shadow-[0_0_15px_rgba(0,240,255,0.5)]' : 'bg-white/5'}`}>
+                    <Settings size={20} />
+                </div>
+                <span className="text-[10px] font-bold tracking-wider">FITTING</span>
+            </button>
+
+            {/* ВЕЛИКА КНОПКА ЗАПУСКУ (По центру) */}
+            <button 
+                onClick={() => useGameStore.setState({ status: 'space' })}
+                className="flex flex-col items-center justify-center -translate-y-6 group"
+            >
+                <div className="w-20 h-20 bg-neon-orange rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(255,165,0,0.4)] border-4 border-space-950 group-hover:scale-105 transition-transform group-hover:shadow-[0_0_30px_rgba(255,165,0,0.6)]">
+                    <Rocket size={32} className="text-black fill-current ml-1" />
+                </div>
+                <span className="text-neon-orange font-black text-xs tracking-widest mt-1 bg-black/50 px-2 py-0.5 rounded">LAUNCH</span>
+            </button>
+
+            {/* Кнопка Вантажу */}
+            <button 
+                onClick={() => setActivePanel(activePanel === 'cargo' ? null : 'cargo')}
+                className={`flex flex-col items-center gap-1 p-2 w-20 transition-all ${activePanel === 'cargo' ? 'text-yellow-500 -translate-y-2' : 'text-gray-400 hover:text-white'}`}
+            >
+                <div className={`p-3 rounded-full ${activePanel === 'cargo' ? 'bg-yellow-500 text-black shadow-[0_0_15px_rgba(255,200,0,0.5)]' : 'bg-white/5'}`}>
+                    <Box size={20} />
+                </div>
+                <span className="text-[10px] font-bold tracking-wider">CARGO</span>
+            </button>
+
         </div>
+
+        {/* SHIP STATS (Floating, small) */}
+        {!activePanel && (
+            <div className="absolute bottom-24 inset-x-0 flex justify-center gap-2 pointer-events-none animate-in fade-in duration-500">
+                <StatBadge icon={<Shield size={12}/>} value={`${spec.armor}%`} label="ARM" color="text-blue-400" />
+                
+                {/* 🔥 ВИПРАВЛЕНО: використовуємо maxHull */}
+                <StatBadge icon={<Activity size={12}/>} value={`${hull}/${maxHull}`} label="HULL" color="text-green-400" />
+                
+                <StatBadge icon={<Zap size={12}/>} value={`MK-${spec.jumpRange}`} label="WARP" color="text-purple-400" />
+            </div>
+        )}
+
     </div>
   )
 }
 
-function StatCard({ icon, label, value, desc }: any) {
+function StatBadge({ icon, value, label, color }: any) {
     return (
-        <div className="bg-white/5 border border-white/10 p-4 rounded hover:bg-white/10 transition-colors group">
-            <div className="flex items-start justify-between mb-2">
-                <div className="text-gray-400 group-hover:text-neon-cyan transition-colors">{icon}</div>
-                <div className="text-xl font-bold text-white font-mono">{value}</div>
+        <div className="bg-black/40 backdrop-blur-md border border-white/10 px-3 py-2 rounded flex items-center gap-2 min-w-[80px]">
+            <div className={color}>{icon}</div>
+            <div>
+                <div className="text-[9px] text-gray-500 font-bold">{label}</div>
+                <div className="text-xs text-white font-mono font-bold leading-none">{value}</div>
             </div>
-            <div className="text-xs font-bold text-gray-300 uppercase">{label}</div>
-            <div className="text-[10px] text-gray-600 mt-1">{desc}</div>
         </div>
     )
 }
