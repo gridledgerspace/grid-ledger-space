@@ -5,12 +5,16 @@ import { useGameStore, SHIP_SPECS, type LootItem } from '../store'
 import Object3D from './Object3D'
 import { Zap, Box, Activity, Crosshair, ShoppingBag, X, LogOut } from 'lucide-react'
 
+// Ті самі кольори
 const SHIP_COLORS: Record<string, string> = {
     'scout': '#00f0ff',      
     'interceptor': '#ff003c', 
     'hauler': '#ffae00',      
     'explorer': '#a855f7'     
 }
+
+// 🔥 Колір космосу (Deep Space Blue)
+const SPACE_COLOR = '#02020a'
 
 function HangarShip({ shipClass }: { shipClass: string }) {
     const color = SHIP_COLORS[shipClass] || '#00f0ff'
@@ -63,9 +67,10 @@ export default function HangarInterface() {
   }
 
   return (
-    <div className="absolute inset-0 z-10 bg-black overflow-hidden">
+    // 🔥 Змінено bg-black на bg-[#02020a] для відповідності космосу
+    <div className="absolute inset-0 z-10 bg-[#02020a] overflow-hidden">
       
-      {/* 1. HEADER (Original Charm) */}
+      {/* 1. HEADER */}
       <div className="absolute top-8 left-8 z-20 border-l-2 border-neon-cyan pl-4 pointer-events-none">
           <h1 className="text-3xl font-bold text-neon-cyan font-mono uppercase" style={{ color: shipColor }}>
               {shipSpec.name}
@@ -85,27 +90,32 @@ export default function HangarInterface() {
            </button>
       </div>
 
-      {/* 3. 3D SCENE (Always visible) */}
+      {/* 3. 3D SCENE */}
       <Canvas camera={{ position: [0, 0, 6], fov: 50 }}>
-        <color attach="background" args={['#050505']} />
+        {/* 🔥 Змінено колір фону сцени */}
+        <color attach="background" args={[SPACE_COLOR]} />
+        {/* 🔥 Додано туман для глибини (як у SpaceView) */}
+        <fog attach="fog" args={[SPACE_COLOR, 5, 20]} />
+
         <ambientLight intensity={0.5} />
         <pointLight position={[10, 10, 10]} intensity={1} color="white" />
         <pointLight position={[-10, 5, -5]} intensity={2} color={shipColor} />
+        
         <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade />
         <Environment preset="city" />
+        
         <HangarShip shipClass={shipClass} />
+        
         <OrbitControls enableZoom={false} enablePan={false} autoRotate autoRotateSpeed={0.5} />
       </Canvas>
 
-      {/* 4. BOTTOM INTERACTIVE TABS (The "Charm" restored + Clickable) */}
+      {/* 4. BOTTOM INTERACTIVE TABS */}
       {!activeOverlay && (
           <>
             <div className="absolute bottom-32 left-1/2 -translate-x-1/2 z-20 flex gap-4">
-                {/* Passive Stats */}
                 <StatBox icon={<Activity size={20}/>} label="HULL" value={`${hull}/${maxHull}`} color="text-neon-cyan" />
                 <StatBox icon={<Zap size={20}/>} label="ENGINE" value={`LVL ${shipSpec.jumpRange}`} color="text-neon-cyan" />
                 
-                {/* Clickable Stats -> Open Overlays */}
                 <StatBox 
                     icon={<Crosshair size={20}/>} 
                     label="FITTING" 
@@ -135,7 +145,7 @@ export default function HangarInterface() {
           </>
       )}
 
-      {/* 5. OVERLAYS (Fitting / Cargo) - Slide up / Fade in */}
+      {/* 5. OVERLAYS (Fitting / Cargo) */}
       {activeOverlay && (
           <div className="absolute inset-0 z-30 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
               <div className="w-full max-w-2xl bg-space-900 border border-white/20 rounded-xl overflow-hidden flex flex-col max-h-[80vh]">
