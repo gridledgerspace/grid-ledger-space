@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, Stars } from '@react-three/drei'
-import { useGameStore, SHIP_SPECS } from '../store' // Не забудьте додати SHIP_SPECS в імпорт
+import { useGameStore, SHIP_SPECS } from '../store'
 import Object3D from './Object3D'
 import StationMenu from './StationMenu'
 import { 
@@ -25,9 +25,11 @@ const SHIP_SPEEDS: Record<string, number> = {
     'explorer': 160     // Дуже швидкий
 }
 
+// 🔥 Колір космосу (той самий, що в Ангарі)
+const SPACE_COLOR = '#02020a'
+
 // === КОКПІТ (HUD) ===
 function CockpitHUD() {
-    // 🔥 ВИПРАВЛЕННЯ: Використовуємо хук без селектора (state:any), щоб TS підтягнув типи
     const { shipClass, hull, maxHull, cargo, maxCargo } = useGameStore()
     
     const spec = SHIP_SPECS[shipClass] || SHIP_SPECS['scout']
@@ -36,7 +38,6 @@ function CockpitHUD() {
     const shadowStyle = { boxShadow: `0 0 10px ${color}40` }
     const borderStyle = { borderColor: `${color}80` }
 
-    // 🔥 ВИПРАВЛЕННЯ: Безпечний розрахунок вантажу
     const currentCargo = Object.values(cargo || {}).reduce((a, b) => a + (b as number), 0)
 
     return (
@@ -92,7 +93,7 @@ function CockpitHUD() {
 
 // === ДВИГУН РУХУ ===
 function GameLoop() {
-  const { inCombat, status, shipClass } = useGameStore() // 🔥 Додали shipClass
+  const { inCombat, status, shipClass } = useGameStore() 
 
   useFrame((_state, delta) => {
     if (inCombat || status === 'mining') return
@@ -104,14 +105,11 @@ function GameLoop() {
 
     const target = objects[0]
     
-    // 🔥 ІНТЕГРАЦІЯ ШВИДКОСТІ КОРАБЛЯ
     const baseSpeed = SHIP_SPEEDS[shipClass] || 100
-    const speedMultiplier = baseSpeed / 100 // 1.0 для scout, 1.6 для explorer тощо
+    const speedMultiplier = baseSpeed / 100 
 
-    // Анімація підльоту
     let approachSpeed = target.distance * 2.5 * delta * speedMultiplier
     
-    // Мінімальна швидкість (теж залежить від двигуна)
     const minSpeed = 150 * delta * speedMultiplier
     if (approachSpeed < minSpeed) approachSpeed = minSpeed
 
@@ -156,7 +154,7 @@ function GameLoop() {
   return null
 }
 
-// === ВІЗУАЛІЗАЦІЯ (Ваша існуюча) ===
+// === ВІЗУАЛІЗАЦІЯ ОБ'ЄКТІВ ===
 function ActiveObjectVisual({ object, color }: { object: any, color: string }) {
     const groupRef = useRef<any>(null)
     
@@ -266,14 +264,17 @@ export default function SpaceView() {
   }
 
   return (
-    <div className="h-[100dvh] w-full bg-space-950 relative overflow-hidden flex flex-col md:flex-row">
+    // 🔥 ФОН: Змінено на #02020a (колір космосу)
+    <div className="h-[100dvh] w-full bg-[#02020a] relative overflow-hidden flex flex-col md:flex-row">
       
-      {/* 🔥 ДОДАНО: HUD КОКПІТУ */}
       <CockpitHUD />
 
       {/* 3D СЦЕНА */}
       <div className="absolute inset-0 z-0">
          <Canvas camera={{ position: [0, 0, 8], fov: 60 }}>
+            {/* 🔥 ФОН СЦЕНИ: Також #02020a */}
+            <color attach="background" args={[SPACE_COLOR]} />
+            
             <ambientLight intensity={0.5} />
             <pointLight position={[10, 10, 10]} intensity={1} color="#ffae00" />
             <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={0.5} />
