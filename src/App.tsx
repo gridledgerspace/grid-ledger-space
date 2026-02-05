@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useGameStore } from './store'
 import { supabase } from './supabase'
 import AuthScreen from './components/AuthScreen'
-import HangarScene from './components/HangarScene'
+import HangarInterface from './components/HangarInterface' // 🔥 ЗАМІНЕНО (був HangarScene)
 import SectorMap from './components/SectorMap'
 import SpaceView from './components/SpaceView'
 import WarpScreen from './components/WarpScreen'
@@ -10,8 +10,8 @@ import EventOverlay from './components/EventOverlay'
 import CombatOverlay from './components/CombatOverlay'
 import StationMenu from './components/StationMenu'
 import { RotateCcw } from 'lucide-react'
-import NotificationSystem from './components/NotificationSystem' // <--- IMPORT
-import LootOverlay from './components/LootOverlay' // <--- IMPORT
+import NotificationSystem from './components/NotificationSystem'
+import LootOverlay from './components/LootOverlay'
 
 function App() {
   const { status, currentSector, isStationOpen, setStationOpen } = useGameStore()
@@ -42,12 +42,11 @@ function App() {
     return () => subscription.unsubscribe()
   }, []) 
 
-  // === ЗАВАНТАЖЕННЯ Гравця (Повернули робочу версію) ===
+  // === ЗАВАНТАЖЕННЯ ГРАВЦЯ ===
   const loadUserData = async (userId: string) => {
     if (isDataLoaded) return 
     setLoadingData(true)
     
-    // Прямий запит до БД (як було у вас раніше)
     const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
     
     if (data) {
@@ -58,8 +57,11 @@ function App() {
         currentSector: data.current_sector,
         cargo: data.cargo || {}, 
         visitedSectors: data.visited_sectors || ['0:0'],
-        // Якщо є ship_class - беремо його, якщо ні - дефолт
-        shipClass: data.ship_class || 'scout' 
+        shipClass: data.ship_class || 'scout',
+        
+        // 🔥 ДОДАНО: Завантаження інвентаря та екіпіровки
+        inventory: data.inventory || [],
+        equipped: data.equipped || {}
       })
       setIsDataLoaded(true)
       
@@ -75,12 +77,16 @@ function App() {
     if (!session || !isDataLoaded) return
     setIsSaving(true)
     const state = useGameStore.getState()
+    
+    // При збереженні оновлюємо і інвентар також
     await supabase.from('profiles').update({
         credits: state.credits, 
         hull: state.hull,
         current_sector: state.currentSector, 
         cargo: state.cargo,
-        visited_sectors: state.visitedSectors, 
+        visited_sectors: state.visitedSectors,
+        inventory: state.inventory, // 🔥 Зберігаємо інвентар
+        equipped: state.equipped,   // 🔥 Зберігаємо екіпіровку
         updated_at: new Date()
       }).eq('id', session.user.id)
     setIsSaving(false)
@@ -103,9 +109,6 @@ function App() {
         }
         
         let { data: sector } = await supabase.from('sectors').select('*').eq('id', currentSector).single()
-        if (!sector) {
-            // Якщо сектору немає в БД - store сам його згенерує через scanCurrentSector
-        }
         
         if (sector) {
             useGameStore.setState({
@@ -130,19 +133,21 @@ function App() {
       
       <EventOverlay />
       <CombatOverlay />
+      
+      {/* Глобальні оверлеї */}
       <NotificationSystem />
       <LootOverlay />
       
-      {/* 🔥 ВИПРАВЛЕНО: Використовуємо глобальний стейт */}
       {isStationOpen && <StationMenu onClose={() => { setStationOpen(false); saveGame('Station Exit') }} />}
       
       {status === 'warping' && <WarpScreen />}
       {status === 'map' && <SectorMap />}
       {(status === 'space' || status === 'mining' || status === 'combat') && <SpaceView key={currentSector} />}
 
+      {/* 🔥 НОВИЙ ІНТЕРФЕЙС АНГАРУ */}
       {status === 'hangar' && (
         <>
-            <HangarScene />
+            <HangarInterface />
             {isSaving && (
                 <div className="absolute top-4 right-4 z-50 text-neon-cyan text-[10px] font-mono animate-pulse flex items-center gap-1">
                     <RotateCcw size={10} className="animate-spin"/> SAVING...
