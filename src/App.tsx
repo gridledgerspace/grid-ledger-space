@@ -10,6 +10,8 @@ import EventOverlay from './components/EventOverlay'
 import CombatOverlay from './components/CombatOverlay'
 import StationMenu from './components/StationMenu'
 import { RotateCcw } from 'lucide-react'
+import NotificationSystem from './components/NotificationSystem' // <--- IMPORT
+import LootOverlay from './components/LootOverlay' // <--- IMPORT
 
 function App() {
   const { status, currentSector, isStationOpen, setStationOpen } = useGameStore()
@@ -128,6 +130,8 @@ function App() {
       
       <EventOverlay />
       <CombatOverlay />
+      <NotificationSystem />
+      <LootOverlay />
       
       {/* 🔥 ВИПРАВЛЕНО: Використовуємо глобальний стейт */}
       {isStationOpen && <StationMenu onClose={() => { setStationOpen(false); saveGame('Station Exit') }} />}
