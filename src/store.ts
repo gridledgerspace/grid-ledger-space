@@ -29,7 +29,11 @@ export interface SectorDetail {
     lastUpdated: number
 }
 
-// 🔥 Оновлений SpaceObject: підтримує і ресурси, і лут
+// Типи для екіпіровки
+export interface EquippedItems {
+    [key: string]: LootItem | null 
+}
+
 export interface SpaceObject {
     id: string
     type: EntityType
@@ -37,7 +41,6 @@ export interface SpaceObject {
     scanned: boolean
     playerName?: string 
     enemyLevel?: number
-    // Універсальне поле даних
     data?: {
         resource?: ResourceType
         amount?: number
@@ -47,20 +50,13 @@ export interface SpaceObject {
 
 // КОНФІГУРАЦІЯ КОРАБЛІВ
 export const SHIP_SPECS: Record<string, { 
-    name: string, 
-    type: string,
-    maxHull: number, 
-    armor: number, 
-    maxCargo: number, 
-    maxSlots: number,
-    jumpRange: number,
-    price: number,
-    desc: string
+    name: string, type: string, maxHull: number, armor: number, 
+    maxCargo: number, maxSlots: number, jumpRange: number, price: number, desc: string
 }> = {
-    'scout': { name: 'PHOENIX', type: 'STARTER', maxHull: 100, armor: 0, maxCargo: 30, maxSlots: 6, jumpRange: 1, price: 0, desc: 'Reliable starter. Balanced layout.' },
-    'hauler': { name: 'HV-1 BEHEMOTH', type: 'HAULER', maxHull: 600, armor: 40, maxCargo: 500, maxSlots: 3, jumpRange: 2, price: 35000, desc: 'Deep space miner. Massive cargo hold.' }, // Ціна виправлена для балансу
-    'interceptor': { name: 'MK-2 PREDATOR', type: 'FIGHTER', maxHull: 300, armor: 20, maxCargo: 50, maxSlots: 8, jumpRange: 3, price: 55000, desc: 'Military grade interceptor.' },
-    'explorer': { name: 'NX-5 VELOCITY', type: 'EXPLORER', maxHull: 150, armor: 5, maxCargo: 60, maxSlots: 5, jumpRange: 4, price: 55000, desc: 'Advanced warp drive systems.' }
+    'scout': { name: 'PHOENIX', type: 'STARTER', maxHull: 100, armor: 0, maxCargo: 30, maxSlots: 6, jumpRange: 1, price: 0, desc: 'Reliable starter.' },
+    'interceptor': { name: 'MK-2 PREDATOR', type: 'FIGHTER', maxHull: 300, armor: 20, maxCargo: 50, maxSlots: 8, jumpRange: 3, price: 55000, desc: 'Heavy armor fighter.' },
+    'hauler': { name: 'HV-1 BEHEMOTH', type: 'HAULER', maxHull: 600, armor: 40, maxCargo: 500, maxSlots: 3, jumpRange: 2, price: 35000, desc: 'Deep space miner.' },
+    'explorer': { name: 'NX-5 VELOCITY', type: 'EXPLORER', maxHull: 150, armor: 5, maxCargo: 60, maxSlots: 5, jumpRange: 4, price: 55000, desc: 'Advanced warp drive.' }
 }
 
 // === HELPER FUNCTIONS ===
@@ -73,7 +69,7 @@ export const getGridDistance = (s1: string, s2: string) => {
 
 const generateSectorContent = (sectorId: string) => {
     const [x, y] = sectorId.split(':').map(Number)
-    const dist = Math.sqrt(x*x + y*y) // Відстань від 0:0
+    const dist = Math.sqrt(x*x + y*y)
     const isEmpty = Math.random() > 0.7 && dist > 2; 
 
     let iron = 0, gold = 0, darkMatter = 0, enemies = 0, enemyLvl = 1
@@ -112,6 +108,11 @@ interface GameState {
   cargo: Record<string, number>
   maxCargo: number
   modules: string[]
+  
+  // 🔥 НОВІ ПОЛЯ ІНВЕНТАРЯ
+  inventory: LootItem[]
+  equipped: EquippedItems
+
   currentSector: string
   targetSector: string | null
   userId: string | null
@@ -132,6 +133,7 @@ interface GameState {
   // Realtime
   realtimeChannel: RealtimeChannel | null
 
+  // Actions
   setTargetSector: (sector: string) => void
   startWarp: () => void
   completeWarp: () => void
@@ -153,16 +155,19 @@ interface GameState {
   setUserId: (id: string) => void
   buyShip: (shipClass: string) => void
 
-  // 🔥 НОВІ ПОЛЯ
   notifications: GameNotification[]
   lootContainer: LootItem[] | null 
   
-  // 🔥 НОВІ ФУНКЦІЇ
   addNotification: (message: string, type?: 'success' | 'warning' | 'error' | 'info') => void
   removeNotification: (id: string) => void
   closeLoot: () => void
   takeLootItem: (index: number) => void
   takeAllLoot: () => void
+  
+  // 🔥 НОВІ ФУНКЦІЇ ДЛЯ АНГАРУ
+  equipItem: (item: LootItem, slotId: string) => void
+  unequipItem: (slotId: string) => void
+  dropItem: (itemId: string) => void // <--- Була пропущена
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -175,8 +180,11 @@ export const useGameStore = create<GameState>((set, get) => ({
   jumpRange: 1, 
   cargo: { Iron: 0, Gold: 0, DarkMatter: 0 },
   maxCargo: 30,
-  modules: ['scanner', 'mining_laser'],
+  modules: [],
   
+  inventory: [],
+  equipped: {},
+
   currentSectorType: 'wild',
   currentSector: '0:0',
   targetSector: null,
@@ -193,17 +201,14 @@ export const useGameStore = create<GameState>((set, get) => ({
   isStationOpen: false,
   realtimeChannel: null,
   
-  // Ініціалізація нових полів
   notifications: [],
   lootContainer: null,
 
   setStationOpen: (isOpen) => set({ isStationOpen: isOpen }),
 
-  // === СИСТЕМА СПОВІЩЕНЬ ===
   addNotification: (message, type = 'info') => {
       const id = Math.random().toString(36).substr(2, 9)
       set(state => ({ notifications: [...state.notifications, { id, message, type }] }))
-      // Автоматичне видалення
       setTimeout(() => get().removeNotification(id), 3000)
   },
 
@@ -211,7 +216,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       set(state => ({ notifications: state.notifications.filter(n => n.id !== id) }))
   },
 
-  // === АВТОРИЗАЦІЯ ТА ПРОФІЛЬ ===
   setUserId: async (id) => {
       set({ userId: id })
       
@@ -233,15 +237,57 @@ export const useGameStore = create<GameState>((set, get) => ({
               maxHull: spec.maxHull,
               maxCargo: spec.maxCargo,
               jumpRange: spec.jumpRange,
-              
               hull: data.hull,
               cargo: data.cargo || { Iron: 0, Gold: 0, DarkMatter: 0 },
-              modules: data.modules || ['scanner', 'mining_laser']
+              
+              // Завантаження інвентаря
+              inventory: data.inventory || [],
+              equipped: data.equipped || {}
           })
       }
   },
 
-  // === КУПІВЛЯ КОРАБЛЯ ===
+  // === ЛОГІКА ІНВЕНТАРЯ ===
+  equipItem: async (item, slotId) => {
+      const { equipped, inventory, userId } = get()
+      
+      const newInventory = inventory.filter(i => i.id !== item.id)
+      const currentItem = equipped[slotId]
+      if (currentItem) {
+          newInventory.push(currentItem)
+      }
+      const newEquipped = { ...equipped, [slotId]: item }
+
+      set({ inventory: newInventory, equipped: newEquipped })
+      if (userId) await supabase.from('profiles').update({ inventory: newInventory, equipped: newEquipped }).eq('id', userId)
+  },
+
+  unequipItem: async (slotId) => {
+      const { equipped, inventory, userId } = get()
+      const item = equipped[slotId]
+      if (!item) return
+
+      const newInventory = [...inventory, item]
+      const newEquipped = { ...equipped }
+      delete newEquipped[slotId]
+
+      set({ inventory: newInventory, equipped: newEquipped })
+      if (userId) await supabase.from('profiles').update({ inventory: newInventory, equipped: newEquipped }).eq('id', userId)
+  },
+
+  // 🔥 ДОДАНО ФУНКЦІЮ dropItem
+  dropItem: async (itemId) => {
+      const { inventory, userId } = get()
+      const newInventory = inventory.filter(i => i.id !== itemId)
+      set({ inventory: newInventory })
+      
+      get().addNotification('Item discarded', 'info')
+      
+      if (userId) {
+          await supabase.from('profiles').update({ inventory: newInventory }).eq('id', userId)
+      }
+  },
+
   buyShip: async (newClass) => {
       const { credits, userId, cargo, shipClass } = get()
       const spec = SHIP_SPECS[newClass]
@@ -280,7 +326,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       get().addNotification(`PURCHASE SUCCESSFUL: ${spec.name}`, 'success')
   },
 
-  // === ВАРП ТА НАВІГАЦІЯ ===
   setTargetSector: (sector) => set({ targetSector: sector }),
 
   updatePresence: async () => {
@@ -323,7 +368,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       })
   },
 
-  // === REALTIME ===
   subscribeToSector: () => {
       const { currentSector, userId, realtimeChannel } = get()
       if (realtimeChannel) supabase.removeChannel(realtimeChannel)
@@ -338,7 +382,6 @@ export const useGameStore = create<GameState>((set, get) => ({
                 const { localObjects } = get()
                 const newProfile = payload.new as any
                 
-                // Гравці
                 if ((payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') && newProfile.id !== userId) {
                     if (newProfile.current_sector === currentSector) {
                         const exists = localObjects.find(o => o.id === `player-${newProfile.id}`)
@@ -407,7 +450,6 @@ export const useGameStore = create<GameState>((set, get) => ({
     let enemyCount = 0
 
     if (sectorData) {
-        // Логіка регенерації
         let isRegenerated = false
         if (sectorData.last_depleted_at) {
             const depTime = new Date(sectorData.last_depleted_at).getTime()
@@ -439,17 +481,14 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ sectorResources: currentRes })
     const objects: SpaceObject[] = []
 
-    // Гравці
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
     const { data: players } = await supabase.from('profiles').select('id').eq('current_sector', currentSector).neq('id', userId).gt('last_active', fiveMinutesAgo)
     if (players) {
         players.forEach((p, idx) => objects.push({ id: `player-${p.id}`, type: 'player', distance: 1000 + idx*500, scanned: true, playerName: `Pilot ${p.id.slice(0,4)}` }))
     }
 
-    // Вороги
     for (let i = 0; i < enemyCount; i++) objects.push({ id: `enemy-${i}-${Date.now()}`, type: 'enemy', distance: 2500 + i*500, scanned: true, enemyLevel: 1 })
     
-    // Астероїди
     let astIdx = 0
     if (currentRes.iron > 0) {
          objects.push({ id: `ast-iron`, type: 'asteroid', distance: 3000, scanned: true, data: { resource: 'Iron', amount: currentRes.iron } })
@@ -462,7 +501,6 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ localObjects: objects })
   },
 
-  // === FETCH MAP ===
   fetchSectorGrid: async (center) => {
       if (!center) return
       const [cx, cy] = center.split(':').map(Number)
@@ -483,7 +521,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       set(state => ({ sectorDetails: { ...state.sectorDetails, ...newDetails } }))
   },
 
-  // === ВЗАЄМОДІЯ ===
   scanSystem: () => {
       const { localObjects } = get()
       set({ localObjects: localObjects.map(o => ({ ...o, scanned: true })) })
@@ -521,12 +558,10 @@ export const useGameStore = create<GameState>((set, get) => ({
     const amountToMine = Math.min(10, amountAvailable, maxCargo - currentLoad)
     const newCargo = { ...cargo, [resType]: (cargo[resType] || 0) + amountToMine }
     
-    // Оновлюємо локальний об'єкт
     const newObjects = [...localObjects]
     newObjects[targetIdx] = { ...target, data: { ...target.data, amount: amountAvailable - amountToMine } }
     if ((newObjects[targetIdx].data?.amount || 0) <= 0) newObjects[targetIdx].type = 'debris'
     
-    // Оновлюємо ресурси сектору
     const newSecRes = { ...sectorResources }
     if (resType === 'Iron') newSecRes.iron -= amountToMine
     if (resType === 'Gold') newSecRes.gold -= amountToMine
@@ -534,7 +569,6 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     set({ localObjects: newObjects, cargo: newCargo, sectorResources: newSecRes, combatLog: [`> Extracted ${amountToMine}T of ${resType}`] })
 
-    // Оновлюємо БД
     const updateData: any = {}
     if (resType === 'Iron') updateData.iron_amount = newSecRes.iron
     if (resType === 'Gold') updateData.gold_amount = newSecRes.gold
@@ -568,7 +602,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
   },
 
-  // === БІЙ ТА ЛУТ ===
   startCombat: (enemyId) => {
       get().updatePresence()
       const { localObjects } = get()
@@ -629,24 +662,19 @@ export const useGameStore = create<GameState>((set, get) => ({
           
           get().addNotification(`TARGET DESTROYED! +${creditReward} CR`, 'success')
 
-          // Генеруємо Лут
           const lootItems: LootItem[] = []
-          // 30% шанс на залізо
           if (Math.random() > 0.3) {
               const amount = Math.floor(Math.random() * 20) + 10
               lootItems.push({ type: 'resource', id: 'iron', name: 'Iron', amount })
           }
-          // 20% шанс на золото
           if (Math.random() > 0.7) {
               const amount = Math.floor(Math.random() * 10) + 5
               lootItems.push({ type: 'resource', id: 'gold', name: 'Gold', amount })
           }
-          // 10% шанс на модуль
           if (Math.random() > 0.9) {
                lootItems.push({ type: 'module', id: 'shield_booster', name: 'Shield Booster MK-1' })
           }
 
-          // Створюємо об'єкти
           const filteredObjects = localObjects.filter(o => o.id !== currentEventId)
           const debris: SpaceObject = { id: `debris-${Date.now()}`, type: 'debris', distance: dist, scanned: true }
           const container: SpaceObject = { 
@@ -659,9 +687,8 @@ export const useGameStore = create<GameState>((set, get) => ({
 
           set({ localObjects: [...filteredObjects, debris, container] })
           
-          // Оновлюємо БД
           supabase.rpc('decrement_enemy_count', { row_id: currentSector }).then(({ error }) => {
-               if (error) { // Fallback, якщо RPC не існує
+               if (error) { 
                    supabase.from('sectors').select('enemy_count').eq('id', currentSector).single().then(({ data }) => {
                         if (data && data.enemy_count > 0) supabase.from('sectors').update({ enemy_count: data.enemy_count - 1 }).eq('id', currentSector).then()
                    })
@@ -688,12 +715,11 @@ export const useGameStore = create<GameState>((set, get) => ({
   closeLoot: () => set({ lootContainer: null, currentEventId: null }),
 
   takeLootItem: (index) => {
-      const { lootContainer, cargo, maxCargo, localObjects, currentEventId } = get()
-      if (!lootContainer || !currentEventId) return
+      const { lootContainer, cargo, maxCargo, inventory } = get()
+      if (!lootContainer) return
 
       const item = lootContainer[index]
       
-      // 1. Перевірка місця та додавання в трюм
       if (item.type === 'resource' && item.amount) {
           const currentLoad = Object.values(cargo).reduce((a, b) => a + b, 0)
           
@@ -708,51 +734,32 @@ export const useGameStore = create<GameState>((set, get) => ({
           set({ cargo: newCargo })
           get().addNotification(`Received ${item.amount} ${item.name}`, 'success')
       } else {
-           get().addNotification(`Blueprint acquired: ${item.name}`, 'info')
+           const newInventory = [...inventory, item]
+           set({ inventory: newInventory })
+           get().addNotification(`Stored in hangar: ${item.name}`, 'success')
+           
+           const uid = get().userId
+           if(uid) supabase.from('profiles').update({ inventory: newInventory }).eq('id', uid).then()
       }
 
-      // 2. Оновлення списку луту (UI)
-      const newLootList = [...lootContainer]
-      newLootList.splice(index, 1) // Видаляємо взятий предмет
+      const newLoot = [...lootContainer]
+      newLoot.splice(index, 1)
 
-      // 3. 🔥 КРИТИЧНЕ ВИПРАВЛЕННЯ: Оновлення об'єкта в космосі (localObjects)
-      if (newLootList.length === 0) {
-          // Якщо пусто -> видаляємо контейнер з космосу і закриваємо вікно
+      if (newLoot.length === 0) {
           get().closeLoot()
+          const { localObjects, currentEventId } = get()
           set({ localObjects: localObjects.filter(o => o.id !== currentEventId) })
       } else {
-          // Якщо щось лишилось -> оновлюємо вміст контейнера в космосі
-          set({ 
-              lootContainer: newLootList,
-              localObjects: localObjects.map(obj => {
-                  if (obj.id === currentEventId) {
-                      return { ...obj, data: { ...obj.data, loot: newLootList } }
-                  }
-                  return obj
-              })
-          })
+          set({ lootContainer: newLoot })
       }
   },
 
   takeAllLoot: () => {
       const { lootContainer } = get()
       if (!lootContainer) return
-      
-      // Створюємо копію, бо takeLootItem буде змінювати масив на льоту
-      // і індекси зсунуться, тому беремо завжди 0-й елемент у циклі
       const count = lootContainer.length
-      
-      // Проходимо стільки разів, скільки предметів було на початку
-      // Але важливо перевіряти, чи предмет ще існує (на випадок переповнення трюму)
       for(let i=0; i<count; i++) {
-          // Завжди пробуємо взяти перший доступний, 
-          // бо після взяття масив зміщується
-          const currentLoot = get().lootContainer
-          if (currentLoot && currentLoot.length > 0) {
-              get().takeLootItem(0) 
-          } else {
-              break // Все забрали або контейнер зник
-          }
+          get().takeLootItem(0) 
       }
   },
 
