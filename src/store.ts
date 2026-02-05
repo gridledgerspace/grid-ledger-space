@@ -688,11 +688,12 @@ export const useGameStore = create<GameState>((set, get) => ({
   closeLoot: () => set({ lootContainer: null, currentEventId: null }),
 
   takeLootItem: (index) => {
-      const { lootContainer, cargo, maxCargo } = get()
-      if (!lootContainer) return
+      const { lootContainer, cargo, maxCargo, localObjects, currentEventId } = get()
+      if (!lootContainer || !currentEventId) return
 
       const item = lootContainer[index]
       
+      // 1. Перевірка місця та додавання в трюм
       if (item.type === 'resource' && item.amount) {
           const currentLoad = Object.values(cargo).reduce((a, b) => a + b, 0)
           
@@ -707,29 +708,51 @@ export const useGameStore = create<GameState>((set, get) => ({
           set({ cargo: newCargo })
           get().addNotification(`Received ${item.amount} ${item.name}`, 'success')
       } else {
-           // Модулі поки просто сповіщаємо
            get().addNotification(`Blueprint acquired: ${item.name}`, 'info')
       }
 
-      const newLoot = [...lootContainer]
-      newLoot.splice(index, 1)
+      // 2. Оновлення списку луту (UI)
+      const newLootList = [...lootContainer]
+      newLootList.splice(index, 1) // Видаляємо взятий предмет
 
-      if (newLoot.length === 0) {
+      // 3. 🔥 КРИТИЧНЕ ВИПРАВЛЕННЯ: Оновлення об'єкта в космосі (localObjects)
+      if (newLootList.length === 0) {
+          // Якщо пусто -> видаляємо контейнер з космосу і закриваємо вікно
           get().closeLoot()
-          const { localObjects, currentEventId } = get()
           set({ localObjects: localObjects.filter(o => o.id !== currentEventId) })
       } else {
-          set({ lootContainer: newLoot })
+          // Якщо щось лишилось -> оновлюємо вміст контейнера в космосі
+          set({ 
+              lootContainer: newLootList,
+              localObjects: localObjects.map(obj => {
+                  if (obj.id === currentEventId) {
+                      return { ...obj, data: { ...obj.data, loot: newLootList } }
+                  }
+                  return obj
+              })
+          })
       }
   },
 
   takeAllLoot: () => {
       const { lootContainer } = get()
       if (!lootContainer) return
-      // Беремо все по черзі
+      
+      // Створюємо копію, бо takeLootItem буде змінювати масив на льоту
+      // і індекси зсунуться, тому беремо завжди 0-й елемент у циклі
       const count = lootContainer.length
+      
+      // Проходимо стільки разів, скільки предметів було на початку
+      // Але важливо перевіряти, чи предмет ще існує (на випадок переповнення трюму)
       for(let i=0; i<count; i++) {
-          get().takeLootItem(0) 
+          // Завжди пробуємо взяти перший доступний, 
+          // бо після взяття масив зміщується
+          const currentLoot = get().lootContainer
+          if (currentLoot && currentLoot.length > 0) {
+              get().takeLootItem(0) 
+          } else {
+              break // Все забрали або контейнер зник
+          }
       }
   },
 
