@@ -8,11 +8,16 @@ export type EntityType = 'asteroid' | 'enemy' | 'station' | 'empty' | 'debris' |
 export type ResourceType = 'Iron' | 'Gold' | 'DarkMatter'
 
 export interface LootItem {
-    type: 'resource' | 'credits' | 'module' | 'weapon'
+    type: 'resource' | 'credits' | 'module' | 'weapon' | 'engine' // Додали engine
     id: string
     name: string
     amount?: number
     icon?: string
+    // Нові поля для майбутнього
+    rarity?: 'common' | 'rare' | 'legendary'
+    origin?: 'standard' | 'crafted' 
+    price?: number // Для магазину
+    specs?: any // Характеристики (швидкість, урон)
 }
 
 export interface GameNotification {
@@ -241,7 +246,10 @@ export const useGameStore = create<GameState>((set, get) => ({
               cargo: data.cargo || { Iron: 0, Gold: 0, DarkMatter: 0 },
               
               // Завантаження інвентаря
-              inventory: data.inventory || [],
+              inventory: data.inventory || [
+                    { id: 'start_mining_laser', name: 'Mining Laser MK-1', type: 'module', icon: 'pickaxe' },
+                    { id: 'start_engine', name: 'Warp Drive MK-1', type: 'engine', icon: 'zap' }
+                ],
               equipped: data.equipped || {}
           })
       }
@@ -715,44 +723,66 @@ export const useGameStore = create<GameState>((set, get) => ({
   closeLoot: () => set({ lootContainer: null, currentEventId: null }),
 
   takeLootItem: (index) => {
-      const { lootContainer, cargo, maxCargo, inventory } = get()
-      if (!lootContainer) return
+    const { lootContainer, cargo, maxCargo, inventory, localObjects, currentEventId } = get()
+    if (!lootContainer || !currentEventId) return
 
-      const item = lootContainer[index]
-      
-      if (item.type === 'resource' && item.amount) {
-          const currentLoad = Object.values(cargo).reduce((a, b) => a + b, 0)
-          
-          if (currentLoad + item.amount > maxCargo) {
-              get().addNotification('CARGO FULL!', 'warning')
-              return
-          }
+    const item = lootContainer[index]
+    let itemTaken = false
 
-          const newCargo = { ...cargo }
-          newCargo[item.name] = (newCargo[item.name] || 0) + item.amount
-          
-          set({ cargo: newCargo })
-          get().addNotification(`Received ${item.amount} ${item.name}`, 'success')
-      } else {
-           const newInventory = [...inventory, item]
-           set({ inventory: newInventory })
-           get().addNotification(`Stored in hangar: ${item.name}`, 'success')
-           
-           const uid = get().userId
-           if(uid) supabase.from('profiles').update({ inventory: newInventory }).eq('id', uid).then()
-      }
+    // --- ЛОГІКА ДОДАВАННЯ В ІНВЕНТАР ---
+    if (item.type === 'resource' && item.amount) {
+        const currentLoad = Object.values(cargo).reduce((a, b) => a + b, 0)
+        if (currentLoad + item.amount > maxCargo) {
+            get().addNotification('CARGO FULL!', 'warning')
+            return
+        }
+        const newCargo = { ...cargo }
+        newCargo[item.name] = (newCargo[item.name] || 0) + item.amount
+        set({ cargo: newCargo })
+        get().addNotification(`Received ${item.amount} ${item.name}`, 'success')
+        itemTaken = true
+    } else {
+        // Модулі, Зброя, Двигуни
+        const newInventory = [...inventory, item]
+        set({ inventory: newInventory })
+        get().addNotification(`Stored: ${item.name}`, 'success')
+        
+        const uid = get().userId
+        if(uid) supabase.from('profiles').update({ inventory: newInventory }).eq('id', uid).then()
+        itemTaken = true
+    }
 
-      const newLoot = [...lootContainer]
-      newLoot.splice(index, 1)
+    if (!itemTaken) return
 
-      if (newLoot.length === 0) {
-          get().closeLoot()
-          const { localObjects, currentEventId } = get()
-          set({ localObjects: localObjects.filter(o => o.id !== currentEventId) })
-      } else {
-          set({ lootContainer: newLoot })
-      }
-  },
+    // --- ОНОВЛЕННЯ КОНТЕЙНЕРА В КОСМОСІ (FIX) ---
+    // 1. Видаляємо предмет з тимчасового масиву
+    const newLootList = [...lootContainer]
+    newLootList.splice(index, 1)
+
+    // 2. Знаходимо контейнер в localObjects і оновлюємо його
+    const updatedObjects = localObjects.map(obj => {
+        if (obj.id === currentEventId) {
+            // Оновлюємо внутрішні дані об'єкта
+            return { ...obj, data: { ...obj.data, loot: newLootList } }
+        }
+        return obj
+    })
+
+    // 3. Якщо контейнер порожній — видаляємо його повністю
+    if (newLootList.length === 0) {
+        set({ 
+            lootContainer: null, 
+            currentEventId: null, // Закриваємо вікно
+            localObjects: updatedObjects.filter(o => o.id !== currentEventId) // Видаляємо з космосу
+        })
+    } else {
+        // Якщо ще щось залишилось — оновлюємо вікно і об'єкти
+        set({ 
+            lootContainer: newLootList,
+            localObjects: updatedObjects
+        })
+    }
+},
 
   takeAllLoot: () => {
       const { lootContainer } = get()

@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Stars, Environment, Float } from '@react-three/drei'
+// 🔥 ВИПРАВЛЕННЯ: додано "type" перед LootItem
 import { useGameStore, SHIP_SPECS, type LootItem } from '../store'
 import Object3D from './Object3D'
+// 🔥 ВИПРАВЛЕННЯ: прибрано зайвий "Lock"
 import { Zap, Box, Activity, Crosshair, ShoppingBag, X, LogOut } from 'lucide-react'
 
 // Ті самі кольори
@@ -43,7 +45,8 @@ export default function HangarInterface() {
   if (status !== 'hangar') return null
 
   // --- RENDERING SLOTS FOR FITTING ---
-  const renderSlot = (index: number, type: 'weapon' | 'module') => {
+  // 🔥 ОНОВЛЕНО: Додано тип 'engine'
+  const renderSlot = (index: number, type: 'weapon' | 'module' | 'engine') => {
       const slotId = `${type}-${index}`
       const item = equipped[slotId]
       return (
@@ -55,7 +58,11 @@ export default function HangarInterface() {
           `}>
               {item ? (
                   <>
-                    <Box size={20} className={type === 'weapon' ? 'text-red-500' : 'text-blue-400'}/>
+                    {/* 🔥 ОНОВЛЕНО: Іконки для різних типів */}
+                    <Box size={20} className={
+                        type === 'weapon' ? 'text-red-500' : 
+                        type === 'engine' ? 'text-yellow-400' : 'text-blue-400'
+                    }/>
                     <div className="text-[8px] text-white mt-1 text-center truncate w-full px-1">{item.name}</div>
                     <button onClick={(e) => { e.stopPropagation(); unequipItem(slotId); }} className="absolute -top-2 -right-2 bg-red-600 rounded-full p-1"><LogOut size={10} className="text-white"/></button>
                   </>
@@ -67,7 +74,6 @@ export default function HangarInterface() {
   }
 
   return (
-    // 🔥 Змінено bg-black на bg-[#02020a] для відповідності космосу
     <div className="absolute inset-0 z-10 bg-[#02020a] overflow-hidden">
       
       {/* 1. HEADER */}
@@ -92,9 +98,7 @@ export default function HangarInterface() {
 
       {/* 3. 3D SCENE */}
       <Canvas camera={{ position: [0, 0, 6], fov: 50 }}>
-        {/* 🔥 Змінено колір фону сцени */}
         <color attach="background" args={[SPACE_COLOR]} />
-        {/* 🔥 Додано туман для глибини (як у SpaceView) */}
         <fog attach="fog" args={[SPACE_COLOR, 5, 20]} />
 
         <ambientLight intensity={0.5} />
@@ -165,9 +169,22 @@ export default function HangarInterface() {
                       {/* --- FITTING PANEL --- */}
                       {activeOverlay === 'fitting' && (
                           <div className="space-y-8">
+                              
+                              {/* 🔥 НОВЕ: Engine Slot */}
+                              <div>
+                                  <div className="text-xs text-gray-500 font-bold uppercase mb-2 flex items-center gap-2">
+                                      <Zap size={14} className="text-yellow-400"/> Warp Drive Engine
+                                  </div>
+                                  <div className="flex flex-wrap gap-4">
+                                      {renderSlot(0, 'engine')}
+                                  </div>
+                              </div>
+
                               {/* Slots Grid */}
                               <div>
-                                  <div className="text-xs text-gray-500 font-bold uppercase mb-2">Hardpoints & Utilities</div>
+                                  <div className="text-xs text-gray-500 font-bold uppercase mb-2 flex items-center gap-2">
+                                      <Crosshair size={14}/> Hardpoints & Utilities
+                                  </div>
                                   <div className="flex flex-wrap gap-4">
                                       <div className="flex gap-2">
                                           {Array.from({ length: Math.ceil(shipSpec.maxSlots/2) }).map((_, i) => renderSlot(i, 'weapon'))}
@@ -194,7 +211,10 @@ export default function HangarInterface() {
                                                       ${selectedItem?.id === item.id ? 'bg-neon-cyan/20 border-neon-cyan' : 'bg-white/5 border-white/10 hover:border-white/30'}
                                                   `}
                                               >
-                                                  <Box size={18} className={item.type === 'weapon' ? 'text-red-400' : 'text-purple-400'}/>
+                                                  <Box size={18} className={
+                                                      item.type === 'weapon' ? 'text-red-400' : 
+                                                      item.type === 'engine' ? 'text-yellow-400' : 'text-purple-400'
+                                                  }/>
                                                   <div className="text-[8px] text-gray-400 mt-1 truncate w-full text-center">{item.name}</div>
                                               </button>
                                           ))}
