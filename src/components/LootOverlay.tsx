@@ -6,9 +6,9 @@ export default function LootOverlay() {
 
   if (!lootContainer) return null
 
-  // 🔥 ВИПРАВЛЕННЯ: додано "as number"
+  // 🔥 ВИПРАВЛЕННЯ: a: number
   const currentLoad = Object.values(cargo || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0)
-  const isFull = (currentLoad as number) >= maxCargo
+  const isFull = currentLoad >= maxCargo
 
   return (
     <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
