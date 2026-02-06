@@ -659,9 +659,36 @@ export const useGameStore = create<GameState>((set, get) => ({
   startCombat: (id) => { set({ status: 'combat', currentEventId: id, inCombat: true, enemyHp: 100, combatLog: ['ENGAGING HOSTILE'] }) },
   
   playerAttack: () => { 
-      const { enemyHp } = get()
-      set({ enemyHp: enemyHp - 10, combatLog: [...get().combatLog, '> Fired lasers: -10 HP'] })
-      if(enemyHp - 10 <= 0) get().endCombat(true)
+      const { enemyHp, hull, combatLog } = get()
+      
+      // 1. Атака гравця
+      const dmg = 10
+      const newEnemyHp = enemyHp - dmg
+      const newLog = [...combatLog, `> Fired lasers: -${dmg} HP`]
+      
+      // Якщо ворога знищено — він не стріляє у відповідь
+      if(newEnemyHp <= 0) {
+          set({ enemyHp: newEnemyHp, combatLog: newLog })
+          get().endCombat(true)
+          return
+      }
+
+      // 2. Атака ворога (це те, чого не вистачало)
+      const enemyDmg = Math.floor(Math.random() * 8) + 5 // Урон 5-13
+      const newHull = hull - enemyDmg
+      newLog.push(`> WARNING: Enemy hit: -${enemyDmg} HULL`)
+
+      // 3. Оновлюємо стан
+      set({ 
+          enemyHp: newEnemyHp, 
+          hull: newHull,
+          combatLog: newLog 
+      })
+
+      // 4. Перевірка програшу
+      if(newHull <= 0) {
+          get().endCombat(false)
+      }
   },
   
   tryFlee: () => { get().endCombat(false) },
