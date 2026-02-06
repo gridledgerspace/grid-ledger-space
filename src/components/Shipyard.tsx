@@ -1,7 +1,6 @@
 import { useState } from 'react'
-// 🔥 ВИПРАВЛЕННЯ: додано "type" перед LootItem
+// 🔥 ВИПРАВЛЕННЯ: імпорт типу
 import { useGameStore, SHIP_SPECS, type LootItem } from '../store'
-// 🔥 ВИПРАВЛЕННЯ: прибрано зайві імпорти
 import { Check, Shield, Box, Zap, Crosshair } from 'lucide-react'
 
 // Прості картинки (заглушки)

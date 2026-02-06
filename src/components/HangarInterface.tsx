@@ -1,10 +1,9 @@
 import { useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Stars, Environment, Float } from '@react-three/drei'
-// 🔥 ВИПРАВЛЕННЯ: додано "type" перед LootItem
+// 🔥 ВИПРАВЛЕННЯ: імпорт типу
 import { useGameStore, SHIP_SPECS, type LootItem } from '../store'
 import Object3D from './Object3D'
-// 🔥 ВИПРАВЛЕННЯ: прибрано зайвий "Lock"
 import { Zap, Box, Activity, Crosshair, ShoppingBag, X, LogOut } from 'lucide-react'
 
 // Ті самі кольори
