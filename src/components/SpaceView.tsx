@@ -35,7 +35,6 @@ function CockpitHUD() {
     const shadowStyle = { boxShadow: `0 0 10px ${color}40` }
     const borderStyle = { borderColor: `${color}80` }
 
-    // 🔥 ВИПРАВЛЕННЯ TS: Явно вказуємо типи для reduce (a: number, b: any)
     const currentCargo = Object.values(cargo || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0)
 
     return (
@@ -174,9 +173,7 @@ export default function SpaceView() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [isSwitching, setIsSwitching] = useState(false)
   
-  // 🔥 ЗМІНА: "true" робить меню згорнутим за замовчуванням
   const [isSidebarCollapsed, setSidebarCollapsed] = useState(true)
-  
   const [isMobileListOpen, setMobileListOpen] = useState(false)
   
   const logEndRef = useRef<HTMLDivElement>(null)
@@ -282,7 +279,14 @@ export default function SpaceView() {
                 />
             )}
             
-            <OrbitControls enableZoom={false} autoRotate autoRotateSpeed={inCombat ? 0.2 : 0.5} />
+            {/* 🔥 ВИПРАВЛЕНО: enablePan={false} (блокує зміщення), enableRotate={true} (дозволяє обертання) */}
+            <OrbitControls 
+                enableZoom={false} 
+                enablePan={false} 
+                enableRotate={true} 
+                autoRotate 
+                autoRotateSpeed={inCombat ? 0.2 : 0.5} 
+            />
          </Canvas>
       </div>
 
