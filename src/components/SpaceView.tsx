@@ -3,14 +3,12 @@ import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, Stars } from '@react-three/drei'
 import { useGameStore, SHIP_SPECS } from '../store'
 import Object3D from './Object3D'
-import StationMenu from './StationMenu'
 import { 
     Navigation, Scan, Pickaxe, Skull, Database, Home, 
     ShoppingBag, ArrowLeftCircle, Box, Trash2, 
-    ChevronRight, ChevronLeft, Target, Menu, X, List, Rocket, Shield
+    ChevronRight, ChevronLeft, Target, Menu, X, List, Rocket, Shield, Activity
 } from 'lucide-react'
 
-// === КОНСТАНТИ КОРАБЛІВ ===
 const SHIP_COLORS: Record<string, string> = {
     'scout': '#00f0ff',      
     'interceptor': '#ff003c', 
@@ -21,28 +19,27 @@ const SHIP_COLORS: Record<string, string> = {
 const SHIP_SPEEDS: Record<string, number> = {
     'scout': 100,       
     'interceptor': 110, 
-    'hauler': 60,       // Повільний
-    'explorer': 160     // Дуже швидкий
+    'hauler': 60,       
+    'explorer': 160     
 }
 
-// 🔥 Колір космосу (той самий, що в Ангарі)
 const SPACE_COLOR = '#02020a'
+const ARRIVAL_DISTANCE = 200 // Дистанція прибуття
 
 // === КОКПІТ (HUD) ===
 function CockpitHUD() {
-    const { shipClass, hull, maxHull, cargo, maxCargo } = useGameStore()
-    
+    const { shipClass, hull, maxHull, cargo, maxCargo } = useGameStore((state: any) => state)
     const spec = SHIP_SPECS[shipClass] || SHIP_SPECS['scout']
     const color = SHIP_COLORS[shipClass] || '#00f0ff'
     
     const shadowStyle = { boxShadow: `0 0 10px ${color}40` }
     const borderStyle = { borderColor: `${color}80` }
 
-    const currentCargo = Object.values(cargo || {}).reduce((a, b) => a + (b as number), 0)
+    // 🔥 ВИПРАВЛЕННЯ TS: Явно вказуємо типи для reduce (a: number, b: any)
+    const currentCargo = Object.values(cargo || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0)
 
     return (
         <div className="absolute top-4 right-4 z-20 flex flex-col items-end gap-2 animate-in slide-in-from-right duration-700 pointer-events-none">
-            {/* SHIP ID CARD */}
             <div 
                 className="bg-black/60 backdrop-blur-md border-r-4 p-3 pl-6 rounded-l-lg transition-colors duration-500"
                 style={{ ...borderStyle, borderRightColor: color, ...shadowStyle }}
@@ -55,9 +52,7 @@ function CockpitHUD() {
                 </h2>
             </div>
 
-            {/* MINI STATS */}
             <div className="flex gap-2">
-                {/* HULL */}
                 <div className="bg-black/60 backdrop-blur-md border border-white/10 p-2 rounded w-24">
                     <div className="flex items-center gap-2 text-xs font-bold text-gray-400 mb-1">
                         <Shield size={12} className={hull < maxHull * 0.3 ? 'text-red-500 animate-pulse' : 'text-gray-400'}/> HULL
@@ -71,7 +66,6 @@ function CockpitHUD() {
                     <div className="text-right text-[10px] font-mono text-white mt-1">{hull}/{maxHull}</div>
                 </div>
 
-                {/* CARGO */}
                 <div className="bg-black/60 backdrop-blur-md border border-white/10 p-2 rounded w-24">
                     <div className="flex items-center gap-2 text-xs font-bold text-gray-400 mb-1">
                         <Box size={12}/> CARGO
@@ -93,7 +87,7 @@ function CockpitHUD() {
 
 // === ДВИГУН РУХУ ===
 function GameLoop() {
-  const { inCombat, status, shipClass } = useGameStore() 
+  const { inCombat, status, shipClass } = useGameStore((state: any) => state) 
 
   useFrame((_state, delta) => {
     if (inCombat || status === 'mining') return
@@ -117,26 +111,20 @@ function GameLoop() {
 
     let hasChanges = false
 
-    const newObjects = objects.map((obj, index) => {
-        // === ЦІЛЬ ===
+    const newObjects = objects.map((obj: any, index: number) => {
         if (index === 0) {
-            if (obj.distance > 200) { 
-                const newDist = Math.max(200, obj.distance - approachSpeed)
+            if (obj.distance > ARRIVAL_DISTANCE) { 
+                const newDist = Math.max(ARRIVAL_DISTANCE, obj.distance - approachSpeed)
                 if (Math.abs(newDist - obj.distance) > 0.1) {
                     hasChanges = true
                     return { ...obj, distance: newDist }
                 }
             }
             return obj
-        } 
-        
-        // === ФОН ===
-        else {
+        } else {
             const SECTOR_LIMIT = 4000 
-            
             if (obj.distance < SECTOR_LIMIT) {
                 const newDist = Math.min(SECTOR_LIMIT, obj.distance + backgroundSpeed)
-                
                 if (Math.abs(newDist - obj.distance) > 0.1) {
                     hasChanges = true
                     return { ...obj, distance: newDist }
@@ -157,13 +145,16 @@ function GameLoop() {
 // === ВІЗУАЛІЗАЦІЯ ОБ'ЄКТІВ ===
 function ActiveObjectVisual({ object, color }: { object: any, color: string }) {
     const groupRef = useRef<any>(null)
-    
     const initialZ = -(object.distance - 200) / 50
 
     useFrame(() => {
         if (groupRef.current) {
             const targetZ = -(object.distance - 200) / 50
-            groupRef.current.position.z += (targetZ - groupRef.current.position.z) * 0.1
+            if (Math.abs(targetZ - groupRef.current.position.z) > 20) {
+                groupRef.current.position.z = targetZ
+            } else {
+                groupRef.current.position.z += (targetZ - groupRef.current.position.z) * 0.1
+            }
         }
     })
 
@@ -177,18 +168,21 @@ function ActiveObjectVisual({ object, color }: { object: any, color: string }) {
 export default function SpaceView() {
   const { 
       currentSector, localObjects, scanSystem, mineObject, startCombat, 
-      inCombat, combatLog, openContainer 
-  } = useGameStore()
+      inCombat, combatLog, openContainer, setStationOpen 
+  } = useGameStore((state: any) => state)
   
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [isSwitching, setIsSwitching] = useState(false)
-  const [showStationMenu, setShowStationMenu] = useState(false)
-  const [isSidebarCollapsed, setSidebarCollapsed] = useState(false)
+  
+  // 🔥 ЗМІНА: "true" робить меню згорнутим за замовчуванням
+  const [isSidebarCollapsed, setSidebarCollapsed] = useState(true)
+  
   const [isMobileListOpen, setMobileListOpen] = useState(false)
   
   const logEndRef = useRef<HTMLDivElement>(null)
-  
   const activeObj = localObjects[0]
+
+  const isArrived = activeObj && activeObj.distance <= ARRIVAL_DISTANCE + 5
 
   useEffect(() => {
       if (localObjects.length > 0 && !selectedId) {
@@ -206,7 +200,7 @@ export default function SpaceView() {
     setSelectedId(id)
     
     const currentObjects = useGameStore.getState().localObjects
-    const newOrder = [...currentObjects].sort((a, b) => {
+    const newOrder = [...currentObjects].sort((a: any, b: any) => {
         if (a.id === id) return -1
         if (b.id === id) return 1
         return 0
@@ -264,7 +258,6 @@ export default function SpaceView() {
   }
 
   return (
-    // 🔥 ФОН: Змінено на #02020a (колір космосу)
     <div className="h-[100dvh] w-full bg-[#02020a] relative overflow-hidden flex flex-col md:flex-row">
       
       <CockpitHUD />
@@ -272,8 +265,8 @@ export default function SpaceView() {
       {/* 3D СЦЕНА */}
       <div className="absolute inset-0 z-0">
          <Canvas camera={{ position: [0, 0, 8], fov: 60 }}>
-            {/* 🔥 ФОН СЦЕНИ: Також #02020a */}
             <color attach="background" args={[SPACE_COLOR]} />
+            <fog attach="fog" args={[SPACE_COLOR, 5, 20]} /> 
             
             <ambientLight intensity={0.5} />
             <pointLight position={[10, 10, 10]} intensity={1} color="#ffae00" />
@@ -296,12 +289,10 @@ export default function SpaceView() {
       {isSwitching && (
           <div className="absolute inset-0 z-20 bg-black/60 backdrop-blur-md flex items-center justify-center animate-in fade-in duration-200">
               <div className="text-neon-cyan font-mono text-xl animate-pulse tracking-[0.3em]">
-                  APPROACHING...
+                  CALCULATING TRAJECTORY...
               </div>
           </div>
       )}
-
-      {showStationMenu && <StationMenu onClose={() => setShowStationMenu(false)} />}
 
       <div className={`absolute top-0 left-0 right-0 z-10 pointer-events-none flex justify-center pt-6 transition-opacity duration-500 ${inCombat ? 'opacity-0' : 'opacity-100'}`}>
           <h1 className="text-lg md:text-2xl font-mono text-neon-cyan/70 font-bold tracking-widest bg-black/30 px-4 py-1 rounded-full backdrop-blur-sm border border-white/5">
@@ -337,33 +328,44 @@ export default function SpaceView() {
                                  <Scan size={16}/> SCAN
                              </button>
                          )}
-                         {activeObj.scanned && activeObj.type === 'station' && (
-                             <div className="flex gap-2">
-                                 <button onClick={() => setShowStationMenu(true)} className="flex-1 py-2 bg-neon-orange/20 border border-neon-orange text-neon-orange text-sm font-bold flex items-center justify-center gap-2">
-                                     <ShoppingBag size={16}/> MARKET
-                                 </button>
-                                 <button onClick={() => useGameStore.setState({ status: 'hangar' })} className="flex-1 py-2 border border-white/20 text-gray-300 text-sm flex items-center justify-center gap-2">
-                                     <ArrowLeftCircle size={16}/> DOCK
-                                 </button>
+
+                         {activeObj.scanned && !isArrived && (
+                             <div className="py-3 bg-black/40 border border-white/10 text-neon-cyan text-xs font-mono animate-pulse flex items-center justify-center gap-2">
+                                 <Activity size={14} className="animate-spin"/> TRAJECTORY ALIGNMENT...
                              </div>
                          )}
-                         {activeObj.scanned && activeObj.type === 'asteroid' && (
-                             <button onClick={() => mineObject(activeObj.id)} className="py-3 bg-neon-cyan/10 border border-neon-cyan text-neon-cyan text-sm font-bold hover:bg-neon-cyan hover:text-black flex items-center justify-center gap-2">
-                                 <Pickaxe size={16}/> MINE
-                             </button>
-                         )}
-                         {activeObj.scanned && activeObj.type === 'enemy' && (
-                             <button onClick={() => startCombat(activeObj.id)} className="py-3 bg-neon-red/20 border border-neon-red text-neon-red text-sm font-bold hover:bg-neon-red hover:text-black flex items-center justify-center gap-2 animate-pulse">
-                                 <Skull size={16}/> ENGAGE HOSTILE
-                             </button>
-                         )}
-                          {activeObj.scanned && activeObj.type === 'container' && (
-                             <button onClick={() => openContainer(activeObj.id)} className="py-3 bg-yellow-500/20 border border-yellow-500 text-yellow-500 text-sm font-bold hover:bg-yellow-500 hover:text-black flex items-center justify-center gap-2">
-                                 <Box size={16}/> OPEN
-                             </button>
-                          )}
-                         {activeObj.scanned && activeObj.type === 'debris' && (
-                             <div className="py-3 text-gray-500 text-xs font-mono border border-gray-800">NO ACTIONS AVAILABLE</div>
+
+                         {activeObj.scanned && isArrived && (
+                             <>
+                                 {activeObj.type === 'station' && (
+                                     <div className="flex gap-2">
+                                         <button onClick={() => setStationOpen(true)} className="flex-1 py-2 bg-neon-orange/20 border border-neon-orange text-neon-orange text-sm font-bold flex items-center justify-center gap-2">
+                                             <ShoppingBag size={16}/> MARKET
+                                         </button>
+                                         <button onClick={() => useGameStore.setState({ status: 'hangar' })} className="flex-1 py-2 border border-white/20 text-gray-300 text-sm flex items-center justify-center gap-2">
+                                             <ArrowLeftCircle size={16}/> DOCK
+                                         </button>
+                                     </div>
+                                 )}
+                                 {activeObj.type === 'asteroid' && (
+                                     <button onClick={() => mineObject(activeObj.id)} className="py-3 bg-neon-cyan/10 border border-neon-cyan text-neon-cyan text-sm font-bold hover:bg-neon-cyan hover:text-black flex items-center justify-center gap-2">
+                                         <Pickaxe size={16}/> MINE
+                                     </button>
+                                 )}
+                                 {activeObj.type === 'enemy' && (
+                                     <button onClick={() => startCombat(activeObj.id)} className="py-3 bg-neon-red/20 border border-neon-red text-neon-red text-sm font-bold hover:bg-neon-red hover:text-black flex items-center justify-center gap-2 animate-pulse">
+                                         <Skull size={16}/> ENGAGE HOSTILE
+                                     </button>
+                                 )}
+                                 {activeObj.type === 'container' && (
+                                     <button onClick={() => openContainer(activeObj.id)} className="py-3 bg-yellow-500/20 border border-yellow-500 text-yellow-500 text-sm font-bold hover:bg-yellow-500 hover:text-black flex items-center justify-center gap-2">
+                                         <Box size={16}/> OPEN
+                                     </button>
+                                 )}
+                                 {activeObj.type === 'debris' && (
+                                     <div className="py-3 text-gray-500 text-xs font-mono border border-gray-800">NO ACTIONS AVAILABLE</div>
+                                 )}
+                             </>
                          )}
                      </div>
                  </div>
@@ -392,7 +394,7 @@ export default function SpaceView() {
                  <button onClick={() => setMobileListOpen(false)}><X size={18} className="text-gray-400"/></button>
              </div>
              <div className="space-y-2 pb-2">
-                 {localObjects.map(obj => (
+                 {localObjects.map((obj: any) => (
                      <button key={obj.id} onClick={() => handleSelect(obj.id)} className={`w-full p-3 rounded border text-left flex items-center gap-3 ${selectedId === obj.id ? 'bg-neon-cyan/10 border-neon-cyan text-white' : 'border-white/10 text-gray-400'}`}>
                          {obj.scanned ? getIcon(obj.type) : <div className="w-2 h-2 rounded-full bg-neon-orange animate-pulse"/>}
                          <div className="flex-1 min-w-0">
@@ -422,13 +424,13 @@ export default function SpaceView() {
                  <div className="flex flex-col gap-1 font-mono text-xs p-2">
                      {isSidebarCollapsed ? <Skull className="text-neon-red mx-auto animate-pulse"/> : (
                          <>
-                           {combatLog.map((log, i) => (<div key={i} className="text-neon-red border-b border-neon-red/10 pb-1 opacity-80">{log}</div>))}
+                           {combatLog.map((log: string, i: number) => (<div key={i} className="text-neon-red border-b border-neon-red/10 pb-1 opacity-80">{log}</div>))}
                            <div ref={logEndRef} />
                          </>
                      )}
                  </div>
              ) : (
-                 localObjects.map(obj => (
+                 localObjects.map((obj: any) => (
                    <button key={obj.id} onClick={() => handleSelect(obj.id)} className={`w-full rounded border transition-all group relative overflow-hidden flex items-center ${selectedId === obj.id ? 'bg-neon-cyan/10 border-neon-cyan shadow-sm' : 'bg-transparent border-white/5 hover:bg-white/5'} ${isSidebarCollapsed ? 'p-3 justify-center' : 'p-3 text-left gap-3'}`}>
                        {selectedId === obj.id && <div className="absolute left-0 top-0 bottom-0 w-1 bg-neon-cyan"/>}
                        <div className={`rounded bg-space-900 border border-white/10 flex items-center justify-center p-2 ${selectedId === obj.id ? 'text-neon-cyan' : 'text-gray-500 group-hover:text-white'}`}>
