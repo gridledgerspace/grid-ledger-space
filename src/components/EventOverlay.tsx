@@ -7,67 +7,81 @@ function LaserSlot({ item, onMine }: { item: LootItem, onMine: (amount: number) 
     const [progress, setProgress] = useState(0)
     const [isActive, setIsActive] = useState(false)
     
-    // Використовуємо useRef для збереження часу старту.
-    // useRef не викликає перерендер і зберігає значення між ними.
+    // Зберігаємо час останнього старту циклу
     const startTimeRef = useRef<number>(0)
-
-    // Отримуємо характеристики лазера або дефолтні
     const stats = LASER_STATS[item.id] || LASER_STATS['default']
 
     const toggleActive = () => {
         if (!isActive) {
-            // Старт: Зберігаємо поточну мітку часу
             startTimeRef.current = Date.now()
             setIsActive(true)
         } else {
-            // Стоп
             setIsActive(false)
             setProgress(0)
         }
     }
 
+    // 🔥 ФУНКЦІЯ ОБРОБКИ ЦИКЛУ (винесена окремо)
+    const processMiningCycle = () => {
+        if (!isActive) return
+
+        const now = Date.now()
+        const elapsed = now - startTimeRef.current
+
+        // Якщо пройшов час повного циклу (або кількох)
+        if (elapsed >= stats.cooldown) {
+            // Рахуємо, скільки повних циклів пройшло (на випадок, якщо вкладка спала довго)
+            const cyclesCompleted = Math.floor(elapsed / stats.cooldown)
+            
+            // Видобуваємо руду за ВСІ пропущені цикли
+            onMine(stats.yield * cyclesCompleted)
+
+            // Пересуваємо час старту вперед на кількість пройдених циклів
+            // Це зберігає ритм і не "обнуляє" зайвий час
+            startTimeRef.current += (cyclesCompleted * stats.cooldown)
+            
+            // Скидаємо візуальний прогрес (або ставимо залишок, якщо хочете супер точність)
+            setProgress(0)
+        } else {
+            // Просто оновлюємо візуальну смужку
+            const percentage = (elapsed / stats.cooldown) * 100
+            setProgress(Math.min(percentage, 100))
+        }
+    }
+
+    // 1. Таймер (працює коли вкладка активна)
     useEffect(() => {
         let interval: any
-
         if (isActive) {
-            // Перевіряємо стан кожні 100мс (достатньо для плавності)
-            // Навіть якщо браузер сповільнить це до 1000мс, математика (elapsed) залишиться точною.
-            interval = setInterval(() => {
-                const now = Date.now()
-                const elapsed = now - startTimeRef.current // Скільки часу пройшло (мс)
-
-                if (elapsed >= stats.cooldown) {
-                    // 1. Цикл завершено
-                    onMine(stats.yield)
-                    
-                    // 2. Скидаємо таймер для наступного циклу
-                    // Оновлюємо час старту на поточний момент
-                    startTimeRef.current = Date.now() 
-                    setProgress(0)
-                } else {
-                    // 3. Оновлюємо візуальний прогрес
-                    // Рахуємо відсоток на основі часу, а не кадрів
-                    const visualProgress = (elapsed / stats.cooldown) * 100
-                    setProgress(visualProgress)
-                }
-            }, 100)
+            interval = setInterval(processMiningCycle, 100)
         }
-
         return () => clearInterval(interval)
-    }, [isActive, stats, onMine])
+    }, [isActive])
+
+    // 2. Слухач видимості сторінки (спрацьовує, коли ви повертаєтесь на вкладку)
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible' && isActive) {
+                // Миттєво перераховуємо прогрес при поверненні
+                processMiningCycle()
+            }
+        }
+        document.addEventListener('visibilitychange', handleVisibilityChange)
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }, [isActive])
 
     return (
         <div className="flex flex-col items-center gap-2">
             <button 
                 onClick={toggleActive}
-                className={`w-16 h-16 border rounded flex flex-col items-center justify-center transition-all relative overflow-hidden group
+                className={`w-14 h-14 md:w-16 md:h-16 border rounded flex flex-col items-center justify-center transition-all relative overflow-hidden group
                     ${isActive ? 'border-neon-cyan bg-neon-cyan/10' : 'border-white/20 bg-black/40 hover:border-white/50'}
                 `}
             >
                 <div className="z-10 flex flex-col items-center pointer-events-none">
                     <Zap size={20} className={isActive ? 'text-neon-cyan animate-pulse' : 'text-gray-500 group-hover:text-white'} />
-                    <span className={`text-[9px] font-mono mt-1 ${isActive ? 'text-white' : 'text-gray-500 group-hover:text-white'}`}>
-                        {isActive ? 'ACTIVE' : 'READY'}
+                    <span className={`text-[8px] md:text-[9px] font-mono mt-1 ${isActive ? 'text-white' : 'text-gray-500 group-hover:text-white'}`}>
+                        {isActive ? 'ON' : 'OFF'}
                     </span>
                 </div>
                 
@@ -78,9 +92,9 @@ function LaserSlot({ item, onMine }: { item: LootItem, onMine: (amount: number) 
                 />
             </button>
             
-            {/* Назва та характеристики */}
+            {/* Статистика лазера */}
             <div className="text-center">
-                <div className="text-[9px] font-mono text-gray-400 uppercase truncate w-20">
+                <div className="text-[8px] md:text-[9px] font-mono text-gray-400 uppercase truncate w-16 md:w-20">
                     {item.name.replace('Mining Laser ', '')}
                 </div>
                 <div className="text-[8px] text-neon-cyan font-mono">
@@ -91,7 +105,7 @@ function LaserSlot({ item, onMine }: { item: LootItem, onMine: (amount: number) 
     )
 }
 
-// --- ГОЛОВНИЙ КОМПОНЕНТ ВІКНА ---
+// --- ГОЛОВНИЙ КОМПОНЕНТ ---
 export default function EventOverlay() {
   const { status, currentEventId, localObjects, closeEvent, extractResource, cargo, maxCargo, equipped } = useGameStore((state: any) => state)
 
@@ -100,7 +114,6 @@ export default function EventOverlay() {
   const target = localObjects.find((o: any) => o.id === currentEventId)
   if (!target) return null
 
-  // Виправляємо типи для reduce, щоб уникнути помилок TS
   const currentLoad = Object.values(cargo || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0)
   
   // Знаходимо всі встановлені лазери
@@ -111,7 +124,7 @@ export default function EventOverlay() {
       <div className="w-full max-w-[500px] bg-black/90 backdrop-blur-xl border border-orange-500/50 rounded-xl p-4 md:p-6 pointer-events-auto relative shadow-[0_0_50px_rgba(255,165,0,0.15)] animate-in zoom-in-95 duration-200">
         
         {/* Header */}
-        <div className="flex justify-between items-start mb-6">
+        <div className="flex justify-between items-start mb-4 md:mb-6">
             <div>
                 <h2 className="text-lg md:text-xl font-bold font-mono text-orange-500 flex items-center gap-2">
                     <Pickaxe className="animate-pulse" /> MINING PROTOCOL
@@ -123,8 +136,8 @@ export default function EventOverlay() {
             <button onClick={closeEvent} className="text-gray-500 hover:text-white transition-colors"><X /></button>
         </div>
 
-        {/* Target Info Panel */}
-        <div className="space-y-3 mb-6 bg-white/5 p-4 rounded border border-white/10">
+        {/* Target Info */}
+        <div className="space-y-3 mb-4 md:mb-6 bg-white/5 p-3 md:p-4 rounded border border-white/10">
             <div className="flex justify-between text-xs md:text-sm font-mono border-b border-white/10 pb-2">
                 <span className="text-gray-400">TARGET ORE:</span>
                 <span className="text-white font-bold uppercase">{target.data?.resource}</span>
@@ -134,7 +147,7 @@ export default function EventOverlay() {
                 <span className="text-neon-cyan font-bold">{target.data?.amount} T</span>
             </div>
             
-            {/* Cargo Capacity Bar */}
+            {/* Cargo Bar */}
             <div className="pt-2">
                 <div className="flex justify-between text-[10px] md:text-xs font-mono mb-1">
                     <span className="text-gray-400 flex items-center gap-2"><Box size={12}/> CARGO BAY:</span>
@@ -151,7 +164,7 @@ export default function EventOverlay() {
             </div>
         </div>
 
-        {/* Active Lasers Control Panel */}
+        {/* Active Lasers */}
         <div>
             <div className="text-[10px] md:text-xs text-gray-500 font-bold uppercase mb-3 flex items-center gap-2">
                 <Activity size={14} className="text-orange-500"/> Active Lasers Control
@@ -162,7 +175,7 @@ export default function EventOverlay() {
                     ⚠ NO MINING LASERS DETECTED
                 </div>
             ) : (
-                <div className="flex justify-center flex-wrap gap-4">
+                <div className="flex justify-center flex-wrap gap-3 md:gap-4">
                     {miningLasers.map((laser, idx) => (
                         <LaserSlot 
                             key={`${laser.id}-${idx}`} 
