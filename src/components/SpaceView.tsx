@@ -295,7 +295,8 @@ export default function SpaceView() {
 
       {isSwitching && (
           <div className="absolute inset-0 z-20 bg-black/60 backdrop-blur-md flex items-center justify-center animate-in fade-in duration-200">
-              <div className="text-neon-cyan font-mono text-xl animate-pulse tracking-[0.3em]">
+              {/* 🔥 ВИПРАВЛЕНО: додано text-center та w-full */}
+              <div className="text-neon-cyan font-mono text-xl animate-pulse tracking-[0.3em] text-center w-full px-4">
                   CALCULATING TRAJECTORY...
               </div>
           </div>
