@@ -24,9 +24,9 @@ const SHIP_SPEEDS: Record<string, number> = {
 }
 
 const SPACE_COLOR = '#02020a'
-const ARRIVAL_DISTANCE = 200 // Дистанція прибуття
+const ARRIVAL_DISTANCE = 200 
 
-// === КОКПІТ (HUD) ===
+// === 🔥 ОНОВЛЕНИЙ КОМПАКТНИЙ HUD ===
 function CockpitHUD() {
     const { shipClass, hull, maxHull, cargo, maxCargo } = useGameStore((state: any) => state)
     const spec = SHIP_SPECS[shipClass] || SHIP_SPECS['scout']
@@ -38,44 +38,49 @@ function CockpitHUD() {
     const currentCargo = Object.values(cargo || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0)
 
     return (
-        <div className="absolute top-4 right-4 z-20 flex flex-col items-end gap-2 animate-in slide-in-from-right duration-700 pointer-events-none">
+        <div className="absolute top-2 right-2 md:top-4 md:right-4 z-20 flex flex-col items-end gap-1 md:gap-2 animate-in slide-in-from-right duration-700 pointer-events-none w-1/3 md:w-auto">
+            
+            {/* ID CARD */}
             <div 
-                className="bg-black/60 backdrop-blur-md border-r-4 p-3 pl-6 rounded-l-lg transition-colors duration-500"
+                className="bg-black/60 backdrop-blur-md border-r-2 md:border-r-4 p-2 md:p-3 pl-4 md:pl-6 rounded-l-lg transition-colors duration-500 w-full"
                 style={{ ...borderStyle, borderRightColor: color, ...shadowStyle }}
             >
-                <div className="text-[10px] text-gray-400 font-mono uppercase tracking-widest text-right mb-1">
-                    SYSTEMS ONLINE // {spec.type} CLASS
+                <div className="text-[7px] md:text-[10px] text-gray-400 font-mono uppercase tracking-widest text-right mb-0.5">
+                    SYS ONLINE
                 </div>
-                <h2 className="text-xl md:text-2xl font-black font-mono uppercase text-right leading-none transition-colors duration-500" style={{ color: color }}>
+                <h2 className="text-sm md:text-2xl font-black font-mono uppercase text-right leading-none truncate" style={{ color: color }}>
                     {spec.name}
                 </h2>
             </div>
 
-            <div className="flex gap-2">
-                <div className="bg-black/60 backdrop-blur-md border border-white/10 p-2 rounded w-24">
-                    <div className="flex items-center gap-2 text-xs font-bold text-gray-400 mb-1">
-                        <Shield size={12} className={hull < maxHull * 0.3 ? 'text-red-500 animate-pulse' : 'text-gray-400'}/> HULL
+            {/* BARS */}
+            <div className="flex gap-1 md:gap-2 w-full justify-end">
+                {/* HULL */}
+                <div className="bg-black/60 backdrop-blur-md border border-white/10 p-1 md:p-2 rounded flex-1 max-w-[80px] md:max-w-[100px]">
+                    <div className="flex items-center justify-end gap-1 text-[8px] md:text-xs font-bold text-gray-400 mb-1">
+                        HULL <Shield size={10} className={hull < maxHull * 0.3 ? 'text-red-500 animate-pulse' : 'text-gray-400'}/>
                     </div>
-                    <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                    <div className="h-1 md:h-1.5 bg-gray-700 rounded-full overflow-hidden">
                         <div 
                             className="h-full transition-all duration-500"
                             style={{ width: `${(hull/maxHull)*100}%`, backgroundColor: hull < maxHull * 0.3 ? '#ef4444' : color }}
                         />
                     </div>
-                    <div className="text-right text-[10px] font-mono text-white mt-1">{hull}/{maxHull}</div>
+                    <div className="text-right text-[8px] md:text-[10px] font-mono text-white mt-0.5">{hull}/{maxHull}</div>
                 </div>
 
-                <div className="bg-black/60 backdrop-blur-md border border-white/10 p-2 rounded w-24">
-                    <div className="flex items-center gap-2 text-xs font-bold text-gray-400 mb-1">
-                        <Box size={12}/> CARGO
+                {/* CARGO */}
+                <div className="bg-black/60 backdrop-blur-md border border-white/10 p-1 md:p-2 rounded flex-1 max-w-[80px] md:max-w-[100px]">
+                    <div className="flex items-center justify-end gap-1 text-[8px] md:text-xs font-bold text-gray-400 mb-1">
+                        CARGO <Box size={10}/>
                     </div>
-                    <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                    <div className="h-1 md:h-1.5 bg-gray-700 rounded-full overflow-hidden">
                         <div 
                             className="h-full bg-yellow-400 transition-all duration-500"
                             style={{ width: `${(currentCargo/maxCargo)*100}%` }}
                         />
                     </div>
-                     <div className="text-right text-[10px] font-mono text-white mt-1">
+                     <div className="text-right text-[8px] md:text-[10px] font-mono text-white mt-0.5">
                         {currentCargo}/{maxCargo}
                     </div>
                 </div>
@@ -144,7 +149,6 @@ function GameLoop() {
 // === ВІЗУАЛІЗАЦІЯ ОБ'ЄКТІВ ===
 function ActiveObjectVisual({ object, color }: { object: any, color: string }) {
     const groupRef = useRef<any>(null)
-    const initialZ = -(object.distance - 200) / 50
 
     useFrame(() => {
         if (groupRef.current) {
@@ -158,7 +162,7 @@ function ActiveObjectVisual({ object, color }: { object: any, color: string }) {
     })
 
     return (
-        <group ref={groupRef} position={[0, 0, initialZ]}>
+        <group ref={groupRef} position={[0, 0, -100]}>
             <Object3D type={object.type} color={color} />
         </group>
     )
@@ -279,7 +283,6 @@ export default function SpaceView() {
                 />
             )}
             
-            {/* 🔥 ВИПРАВЛЕНО: enablePan={false} (блокує зміщення), enableRotate={true} (дозволяє обертання) */}
             <OrbitControls 
                 enableZoom={false} 
                 enablePan={false} 
@@ -298,8 +301,8 @@ export default function SpaceView() {
           </div>
       )}
 
-      <div className={`absolute top-0 left-0 right-0 z-10 pointer-events-none flex justify-center pt-6 transition-opacity duration-500 ${inCombat ? 'opacity-0' : 'opacity-100'}`}>
-          <h1 className="text-lg md:text-2xl font-mono text-neon-cyan/70 font-bold tracking-widest bg-black/30 px-4 py-1 rounded-full backdrop-blur-sm border border-white/5">
+      <div className={`absolute top-0 left-0 right-0 z-10 pointer-events-none flex justify-center pt-4 md:pt-6 transition-opacity duration-500 ${inCombat ? 'opacity-0' : 'opacity-100'}`}>
+          <h1 className="text-sm md:text-2xl font-mono text-neon-cyan/70 font-bold tracking-widest bg-black/30 px-3 md:px-4 py-1 rounded-full backdrop-blur-sm border border-white/5">
               SEC {currentSector}
           </h1>
       </div>
