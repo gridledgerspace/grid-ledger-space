@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useGameStore, getGridDistance } from '../store'
-import { Navigation, MapPin, Loader2, LocateFixed, Rocket, Home, Skull, Gem, CircleDashed, AlertTriangle, Zap, Route } from 'lucide-react'
+import { Navigation, MapPin, Loader2, LocateFixed, Rocket, Home, Skull, Gem, CircleDashed, Ban, AlertTriangle, Zap, Route } from 'lucide-react'
 
 export default function SectorMap() {
   const { 
@@ -9,11 +9,10 @@ export default function SectorMap() {
     jumpRange 
   } = useGameStore((state: any) => state)
 
-  // Центр перегляду (камера)
   const [viewCenter, setViewCenter] = useState(currentSector || '0:0')
   const [isLoading, setIsLoading] = useState(false)
 
-  // === ДРАГ-Н-ДРОП ===
+  // === СТАБІЛЬНИЙ ДРАГ-Н-ДРОП ===
   const [isDragging, setIsDragging] = useState(false)
   const offset = useRef({ x: 0, y: 0 }) 
   const dragStart = useRef({ x: 0, y: 0 })
@@ -44,7 +43,7 @@ export default function SectorMap() {
     dragStart.current = { x: e.clientX, y: e.clientY }
     if (mapRef.current) {
         mapRef.current.style.transition = 'none'
-        mapRef.current.setPointerCapture(e.pointerId)
+        mapRef.current.setPointerCapture(e.pointerId) // Фікс "втрати" курсора
     }
   }
 
@@ -59,7 +58,7 @@ export default function SectorMap() {
   const handlePointerUp = (e: React.PointerEvent) => {
     if (!isDragging) return
     setIsDragging(false)
-
+    
     if (mapRef.current) {
         mapRef.current.releasePointerCapture(e.pointerId)
         mapRef.current.style.transition = 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)'
@@ -70,7 +69,6 @@ export default function SectorMap() {
     const currentTotalX = offset.current.x + dx
     const currentTotalY = offset.current.y + dy
 
-    // Магнітимо до сітки
     const sectorsX = -Math.round(currentTotalX / TOTAL_CELL_SIZE)
     const sectorsY = -Math.round(currentTotalY / TOTAL_CELL_SIZE)
 
@@ -100,7 +98,7 @@ export default function SectorMap() {
       else setTargetSector(id)
   }
 
-  // --- ВІЗУАЛІЗАЦІЯ КОНТЕНТУ ---
+  // --- ВІЗУАЛІЗАЦІЯ ---
   const getSectorContent = (id: string) => {
       if (id === '0:0') return { type: 'station', icon: <Home size={16}/>, color: 'text-yellow-400', hasEnemies: false }
       
@@ -132,46 +130,55 @@ export default function SectorMap() {
 
   const isTargetReachable = targetSector && getGridDistance(currentSector, targetSector) <= jumpRange
 
-  // === ГЕНЕРАЦІЯ СІТКИ ===
-  // Важливо: cx, cy - це координати центру екрану в "світі гри"
+  // === ГЕНЕРАЦІЯ СІТКИ (GRID) ===
   const [cx, cy] = viewCenter.split(':').map(Number)
-  const gridSize = 6 // Радіус сітки (чим більше, тим більше секторів малюється)
-  const grid = []
-  for (let y = cy - gridSize; y <= cy + gridSize; y++) {
-    for (let x = cx - gridSize; x <= cx + gridSize; x++) {
-      grid.push(`${x}:${y}`)
-    }
-  }
-
-  // === 🔥 ФУНКЦІЯ РОЗРАХУНКУ ПОЗИЦІЇ ===
-  // Ця функція гарантує, що стрілки і кнопки використовують одну систему координат
-  const getSectorPosition = (id: string) => {
-      if (!id) return null
-      const [sx, sy] = id.split(':').map(Number)
-      
-      // Позиція відносно центру (cx, cy)
-      // Це ТА САМА формула, що використовується для style={{ transform }} у кнопок
-      const x = (sx - cx) * TOTAL_CELL_SIZE
-      const y = (sy - cy) * TOTAL_CELL_SIZE
-      
-      // Повертаємо центр клітинки
-      return {
-          x: x + CELL_SIZE / 2,
-          y: y + CELL_SIZE / 2
+  const gridSize = 5 // Радіус
+  
+  // Використовуємо useMemo, щоб грід не перераховувався дарма
+  const gridCells = useMemo(() => {
+      const cells = []
+      for (let y = cy - gridSize; y <= cy + gridSize; y++) {
+          for (let x = cx - gridSize; x <= cx + gridSize; x++) {
+              cells.push(`${x}:${y}`)
+          }
       }
+      return cells
+  }, [cx, cy])
+
+  // === 🔥 РОЗРАХУНОК СТРІЛОК ВІДНОСНО GRID ===
+  // Оскільки ми використовуємо CSS Grid, координати (0,0) у SVG - це лівий верхній кут контейнера.
+  // Нам треба знайти, де знаходиться потрібний сектор ВІДНОСНО лівого верхнього сектора гріда.
+  const getRelativeCoords = (sectorId: string) => {
+      if (!sectorId) return null
+      const [sx, sy] = sectorId.split(':').map(Number)
+      
+      // Лівий верхній сектор гріда:
+      const startX = cx - gridSize
+      const startY = cy - gridSize
+
+      // Індекс колонки та рядка (0...gridSize*2)
+      const colIndex = sx - startX
+      const rowIndex = sy - startY
+
+      // Переводимо в пікселі
+      // (Індекс * Розмір) + Половина клітинки (центр)
+      const x = (colIndex * TOTAL_CELL_SIZE) + (CELL_SIZE / 2)
+      const y = (rowIndex * TOTAL_CELL_SIZE) + (CELL_SIZE / 2)
+
+      return { x, y }
   }
 
-  // === 🔥 МАЛЮВАННЯ СТРІЛОК ===
   const renderArrows = () => {
-      const start = getSectorPosition(currentSector)
-      const mid = getSectorPosition(targetSector)
-      const end = getSectorPosition(finalDestination)
+      if (!targetSector) return null
+
+      const start = getRelativeCoords(currentSector)
+      const mid = getRelativeCoords(targetSector)
+      const end = finalDestination ? getRelativeCoords(finalDestination) : null
 
       if (!start || !mid) return null
 
       return (
-          // z-index-0, щоб бути під текстом кнопок, але якщо треба ПОВЕРХ, ставте z-50 і pointer-events-none
-          <svg className="absolute top-0 left-0 w-full h-full overflow-visible pointer-events-none z-50">
+          <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-10 overflow-visible">
               <defs>
                   <marker id="arrow-blue" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
                       <path d="M0,0 L0,6 L6,3 z" fill="#00f0ff" />
@@ -181,27 +188,27 @@ export default function SectorMap() {
                   </marker>
               </defs>
 
-              {/* 1. Лінія до проміжної цілі (Синя) */}
-              <path 
-                  d={`M ${start.x} ${start.y} L ${mid.x} ${mid.y}`}
+              {/* Лінія 1: Старт -> Проміжна */}
+              <line 
+                  x1={start.x} y1={start.y} 
+                  x2={mid.x} y2={mid.y} 
                   stroke="#00f0ff" 
-                  strokeWidth="3" 
-                  strokeDasharray="8,4"
+                  strokeWidth="2" 
+                  strokeDasharray="6,4"
                   markerEnd="url(#arrow-blue)"
                   className="animate-pulse"
-                  fill="none"
               />
 
-              {/* 2. Лінія до фіналу (Золота) */}
+              {/* Лінія 2: Проміжна -> Фінал */}
               {end && (
-                  <path 
-                      d={`M ${mid.x} ${mid.y} L ${end.x} ${end.y}`}
+                  <line 
+                      x1={mid.x} y1={mid.y} 
+                      x2={end.x} y2={end.y} 
                       stroke="#fbbf24" 
-                      strokeWidth="3" 
-                      strokeDasharray="8,4"
+                      strokeWidth="2" 
+                      strokeDasharray="6,4"
                       markerEnd="url(#arrow-gold)"
                       opacity="0.8"
-                      fill="none"
                   />
               )}
           </svg>
@@ -237,7 +244,7 @@ export default function SectorMap() {
         </button>
       </div>
 
-      {/* TARGET INFO */}
+      {/* TARGET PANEL */}
       {targetSector && (
           <div className="absolute top-20 right-4 z-20 pointer-events-none animate-in slide-in-from-right">
              <div className="glass-panel p-4 text-right border-r-4 border-r-neon-orange pointer-events-auto min-w-[140px] bg-black/80 backdrop-blur-md">
@@ -262,7 +269,7 @@ export default function SectorMap() {
           </div>
       )}
 
-      {/* === MAP INTERACTIVE AREA === */}
+      {/* MAP AREA */}
       <div 
         className="flex-1 relative z-10 overflow-hidden cursor-move flex items-center justify-center touch-none"
         onPointerDown={handlePointerDown}
@@ -270,21 +277,21 @@ export default function SectorMap() {
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
       >
-        {/* Рухомий контейнер (Світ) */}
         <div 
             ref={mapRef}
-            className="absolute top-1/2 left-1/2 will-change-transform" // Центруємо точку 0,0
+            className="grid place-items-center will-change-transform relative" // relative для SVG
             style={{ 
                 transform: `translate3d(${offset.current.x}px, ${offset.current.y}px, 0)`,
-                width: '0px', height: '0px', // Це точка відліку
-                overflow: 'visible' 
+                width: 'max-content', 
+                gap: `${GAP_SIZE}px`,
+                // Важливо: CSS Grid структура повинна бути строгою
+                gridTemplateColumns: `repeat(${gridSize * 2 + 1}, ${CELL_SIZE}px)`
             }}
         >
-            {/* 🔥 СТРІЛКИ ТЕПЕР ТУТ, РАЗОМ З СІТКОЮ */}
+            {/* 🔥 СТРІЛКИ ВСЕРЕДИНІ КОНТЕЙНЕРА GRID 🔥 */}
             {renderArrows()}
 
-            {grid.map(sectorId => {
-                const [sx, sy] = sectorId.split(':').map(Number)
+            {gridCells.map(sectorId => {
                 const isCurrent = sectorId === currentSector
                 const isTarget = sectorId === targetSector
                 const isFinal = sectorId === finalDestination
@@ -294,17 +301,14 @@ export default function SectorMap() {
                 const isReachable = dist <= jumpRange
                 const isStation = sectorId === '0:0'
 
-                // Розрахунок позиції (відносно центру viewCenter)
-                const posX = (sx - cx) * TOTAL_CELL_SIZE
-                const posY = (sy - cy) * TOTAL_CELL_SIZE
-
+                // Стилі клітинки
                 let cellStyle = ''
                 if (isCurrent) {
                     cellStyle = 'bg-neon-cyan border-neon-cyan text-black shadow-neon z-20 scale-110'
                 } else if (isTarget) {
-                    cellStyle = 'bg-neon-orange/20 border-neon-orange text-neon-orange border-dashed z-10'
+                    cellStyle = 'bg-neon-orange/20 border-neon-orange text-neon-orange border-dashed z-20 animate-pulse'
                 } else if (isFinal) {
-                    cellStyle = 'bg-yellow-500/20 border-yellow-500 text-yellow-500 border-dashed z-10'
+                    cellStyle = 'bg-yellow-500/20 border-yellow-500 text-yellow-500 border-dashed z-20'
                 } else if (isStation) {
                     cellStyle = 'bg-yellow-400/10 border-yellow-400 text-yellow-400 shadow-[inset_0_0_15px_rgba(250,204,21,0.2)]'
                 } else if (isReachable) {
@@ -313,7 +317,7 @@ export default function SectorMap() {
                             ? 'bg-red-900/30 border-red-500 text-white' 
                             : 'bg-space-800/80 border-white/20 hover:border-neon-cyan/50 hover:bg-space-700'
                     } else {
-                        cellStyle = 'bg-black/40 border-white/10 hover:border-white/30'
+                        cellStyle = 'bg-black/40 border-white/10 hover:border-white/30 opacity-70'
                     }
                 } else {
                     cellStyle = 'bg-black/20 border-white/5 opacity-40 grayscale'
@@ -324,16 +328,7 @@ export default function SectorMap() {
                         key={sectorId}
                         onClick={() => !isDragging && handleSectorClick(sectorId)}
                         disabled={isCurrent}
-                        style={{ 
-                            width: `${CELL_SIZE}px`, 
-                            height: `${CELL_SIZE}px`,
-                            position: 'absolute',
-                            // 🔥 ВАЖЛИВО: Центруємо кнопку, щоб її координати збігалися з лініями
-                            left: posX, 
-                            top: posY,
-                            marginLeft: -CELL_SIZE/2, // Зміщуємо на половину, щоб x,y були центром
-                            marginTop: -CELL_SIZE/2
-                        }}
+                        style={{ width: `${CELL_SIZE}px`, height: `${CELL_SIZE}px`, position: 'relative', zIndex: 20 }} // zIndex щоб бути над SVG
                         className={`
                             rounded border flex flex-col items-center justify-center group overflow-hidden
                             transition-colors duration-200
