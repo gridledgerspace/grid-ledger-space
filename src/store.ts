@@ -166,6 +166,7 @@ interface GameState {
   realtimeChannel: RealtimeChannel | null
   notifications: GameNotification[]
   lootContainer: LootItem[] | null 
+  finalDestination: string | null
   
   addNotification: (message: string, type?: 'success' | 'warning' | 'error' | 'info') => void
   removeNotification: (id: string) => void
@@ -197,6 +198,8 @@ interface GameState {
   equipItem: (item: LootItem, slotId: string) => void
   unequipItem: (slotId: string) => void
   dropItem: (itemId: string) => void
+
+  plotCourse: (target: string) => void
 }
 
 // === IMPLEMENTATION ===
@@ -230,6 +233,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   realtimeChannel: null,
   notifications: [],
   lootContainer: null,
+  finalDestination: null,
 
   setStationOpen: (isOpen) => set({ isStationOpen: isOpen }),
 
@@ -435,10 +439,89 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   completeWarp: () => {
-      const { targetSector } = get()
+      const { targetSector, finalDestination, jumpRange } = get()
+      
+      // 1. Прибули в ціль
       if (!targetSector) return
-      set({ status: 'space', currentSector: targetSector, targetSector: null, localObjects: [], currentEventId: null })
+      
+      set({ 
+          status: 'space', 
+          currentSector: targetSector, 
+          targetSector: null, 
+          localObjects: [], 
+          currentEventId: null 
+      })
+
+      // Оновлюємо присутність і скануємо
       get().updatePresence().then(() => get().scanCurrentSector())
+
+      // 🔥 ЛОГІКА АВТОПІЛОТУ
+      if (finalDestination) {
+          // Якщо ми прибули в фінальну точку
+          if (targetSector === finalDestination) {
+              set({ finalDestination: null })
+              get().addNotification('DESTINATION REACHED', 'success')
+          } else {
+              // Якщо ми ще в дорозі - плануємо наступний стрибок
+              get().addNotification('AUTOPILOT: CHARGING NEXT JUMP...', 'info')
+              
+              // Розрахунок наступного кроку
+              const [cx, cy] = targetSector.split(':').map(Number)
+              const [fx, fy] = finalDestination.split(':').map(Number)
+              
+              const dx = fx - cx
+              const dy = fy - cy
+              
+              // Знаходимо точку на відстані стрибка в напрямку цілі
+              const distance = Math.max(Math.abs(dx), Math.abs(dy))
+              const ratio = Math.min(jumpRange, distance) / distance
+              
+              const nextX = Math.round(cx + (dx * ratio))
+              const nextY = Math.round(cy + (dy * ratio))
+              const nextHop = `${nextX}:${nextY}`
+
+              // Ставимо наступну ціль
+              set({ targetSector: nextHop })
+
+              // Автоматичний старт через 3 секунди
+              setTimeout(() => {
+                  if (get().status === 'space') { // Перевірка, чи нас не вбили поки ми чекали
+                      get().startWarp()
+                  }
+              }, 3000)
+          }
+      }
+  },
+
+  plotCourse: (destination: string) => {
+      const { currentSector, jumpRange } = get()
+      
+      const dist = getGridDistance(currentSector, destination)
+
+      if (dist <= jumpRange) {
+          // Якщо близько - просто стрибаємо
+          set({ targetSector: destination, finalDestination: null })
+      } else {
+          // Якщо далеко - вмикаємо режим маршруту
+          const [cx, cy] = currentSector.split(':').map(Number)
+          const [fx, fy] = destination.split(':').map(Number)
+          
+          const dx = fx - cx
+          const dy = fy - cy
+          const distance = Math.max(Math.abs(dx), Math.abs(dy))
+          
+          // Розрахунок першого стрибка (Next Hop)
+          const ratio = jumpRange / distance
+          const nextX = Math.round(cx + (dx * ratio))
+          const nextY = Math.round(cy + (dy * ratio))
+          
+          // Виправляємо баг, якщо ціль надто близько до округлення
+          const nextHop = `${nextX}:${nextY}` === currentSector 
+             ? `${cx + Math.sign(dx)}:${cy + Math.sign(dy)}` 
+             : `${nextX}:${nextY}`
+
+          set({ targetSector: nextHop, finalDestination: destination })
+      }
   },
 
   scanCurrentSector: async () => {

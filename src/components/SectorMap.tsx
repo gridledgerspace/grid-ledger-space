@@ -1,17 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
 import { useGameStore, getGridDistance } from '../store'
-import { Navigation, MapPin, Loader2, LocateFixed, Rocket, Home, Skull, Gem, CircleDashed, AlertTriangle, Zap } from 'lucide-react'
+import { Navigation, MapPin, Loader2, LocateFixed, Rocket, Home, Skull, Gem, CircleDashed, AlertTriangle, Zap, Route } from 'lucide-react'
 
 export default function SectorMap() {
   const { 
-    currentSector, visitedSectors, targetSector, setTargetSector, 
-    startWarp, fetchSectorGrid, sectorDetails, localObjects,
+    currentSector, visitedSectors, targetSector, finalDestination,
+    startWarp, plotCourse, fetchSectorGrid, sectorDetails, localObjects,
     jumpRange 
   } = useGameStore((state: any) => state)
 
   const [viewCenter, setViewCenter] = useState(currentSector || '0:0')
   const [isLoading, setIsLoading] = useState(false)
-  const [finalDestination, setFinalDestination] = useState<string | null>(null) // Для маршруту
 
   // === ДРАГ-Н-ДРОП ===
   const [isDragging, setIsDragging] = useState(false)
@@ -83,42 +82,9 @@ export default function SectorMap() {
       applyTransform(0, 0)
   }
 
-  // --- ЛОГІКА ВИБОРУ СЕКТОРА (З МАРШРУТОМ) ---
-  const handleSectorClick = (id: string) => {
-      if (isDragging) return
-      if (id === currentSector) return
-
-      const dist = getGridDistance(currentSector, id)
-
-      if (dist <= jumpRange) {
-          setTargetSector(id)
-          setFinalDestination(null)
-      } else {
-          // Будуємо маршрут
-          setFinalDestination(id)
-          
-          const [cx, cy] = currentSector.split(':').map(Number)
-          const [tx, ty] = id.split(':').map(Number)
-          
-          const dx = tx - cx
-          const dy = ty - cy
-          const ratio = jumpRange / Math.max(Math.abs(dx), Math.abs(dy))
-          
-          const nextX = Math.round(cx + dx * ratio)
-          const nextY = Math.round(cy + dy * ratio)
-          
-          const nextHop = `${nextX}:${nextY}` === currentSector 
-             ? `${cx + Math.sign(dx)}:${cy + Math.sign(dy)}` 
-             : `${nextX}:${nextY}`
-
-          setTargetSector(nextHop)
-      }
-  }
-
-  // --- ОТРИМАННЯ КОНТЕНТУ ---
+  // --- ВІЗУАЛІЗАЦІЯ ---
   const getSectorContent = (id: string) => {
-      // Станція
-      if (id === '0:0') return { type: 'station', icon: <Home size={14}/>, color: 'text-yellow-400', hasEnemies: false }
+      if (id === '0:0') return { type: 'station', icon: <Home size={16}/>, color: 'text-yellow-400', hasEnemies: false }
       
       let hasEnemies = false
       let hasResources = false
@@ -146,15 +112,83 @@ export default function SectorMap() {
       return { type: 'unknown', icon: null, color: 'text-gray-800', hasEnemies: false }
   }
 
-  // Генерація сітки
+  // Сітка
   const [cx, cy] = viewCenter.split(':').map(Number)
-  const gridSize = 4 
+  const gridSize = 5 // Збільшений радіус для безкінечності
   const grid = []
   for (let y = cy - gridSize; y <= cy + gridSize; y++) {
     for (let x = cx - gridSize; x <= cx + gridSize; x++) {
       grid.push(`${x}:${y}`)
     }
   }
+
+  // --- РОЗРАХУНОК ЛІНІЇ МАРШРУТУ ---
+  // Ми малюємо SVG всередині рухомого контейнера
+  const renderRouteLine = () => {
+      if (!targetSector) return null
+
+      // Функція конвертації координат сектора в пікселі всередині контейнера
+      // Центр (0,0) це `viewCenter`. Координати grid починаються від (cx - gridSize).
+      // Але простіше рахувати відносно (0,0) і просто позиціонувати лінії.
+      
+      const getPos = (secId: string) => {
+          const [sx, sy] = secId.split(':').map(Number)
+          // Розраховуємо позицію центру клітинки
+          // Врахуємо offset центрування (viewCenter)
+          const relX = sx - cx
+          const relY = sy - cy
+          
+          // x * size + size/2 (центр)
+          return {
+              x: (relX * TOTAL_CELL_SIZE) + (CELL_SIZE / 2),
+              y: (relY * TOTAL_CELL_SIZE) + (CELL_SIZE / 2)
+          }
+      }
+
+      const start = getPos(currentSector)
+      const next = getPos(targetSector)
+      const end = finalDestination ? getPos(finalDestination) : null
+
+      return (
+          <svg className="absolute top-0 left-0 overflow-visible pointer-events-none z-0" style={{ width: '1px', height: '1px' }}>
+              <defs>
+                  <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="#00f0ff" />
+                  </marker>
+                  <marker id="arrowhead-gold" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24" />
+                  </marker>
+              </defs>
+              
+              {/* Лінія до проміжної точки */}
+              <line 
+                  x1={start.x} y1={start.y} 
+                  x2={next.x} y2={next.y} 
+                  stroke="#00f0ff" 
+                  strokeWidth="2" 
+                  markerEnd="url(#arrowhead)"
+                  className="animate-pulse"
+              />
+
+              {/* Лінія до фіналу (якщо є) */}
+              {end && (
+                  <line 
+                      x1={next.x} y1={next.y} 
+                      x2={end.x} y2={end.y} 
+                      stroke="#fbbf24" 
+                      strokeWidth="2" 
+                      strokeDasharray="8,4"
+                      markerEnd="url(#arrowhead-gold)"
+                      opacity="0.6"
+                  />
+              )}
+          </svg>
+      )
+  }
+
+  // Розрахунок відстані
+  const totalDist = finalDestination ? getGridDistance(currentSector, finalDestination) : (targetSector ? getGridDistance(currentSector, targetSector) : 0)
+  const jumpsNeeded = Math.ceil(totalDist / jumpRange)
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col font-mono text-white h-[100dvh] overflow-hidden select-none touch-none">
@@ -180,24 +214,26 @@ export default function SectorMap() {
         </button>
       </div>
 
-      {/* TARGET PANEL */}
+      {/* TARGET INFO (RIGHT SIDE) */}
       {targetSector && (
           <div className="absolute top-20 right-4 z-20 pointer-events-none animate-in slide-in-from-right">
              <div className="glass-panel p-4 text-right border-r-4 border-r-neon-orange pointer-events-auto min-w-[140px] bg-black/80 backdrop-blur-md">
                 <div className="text-[10px] text-gray-400 uppercase tracking-wider">
-                    {finalDestination ? 'Final Destination' : 'Target Jump'}
+                    {finalDestination ? 'FINAL DESTINATION' : 'NEXT JUMP'}
                 </div>
-                <div className="text-white font-bold text-xl">
+                <div className={`font-bold text-xl ${finalDestination ? 'text-yellow-400' : 'text-white'}`}>
                     {finalDestination || targetSector}
                 </div>
                 
                 {finalDestination && (
-                    <div className="text-neon-orange text-[10px] animate-pulse">VIA: {targetSector}</div>
+                    <div className="text-neon-cyan text-[10px] mt-1 flex items-center justify-end gap-1">
+                        <Zap size={10}/> VIA: {targetSector}
+                    </div>
                 )}
                 
-                <div className="mt-2 text-[10px] text-gray-500">DISTANCE</div>
-                <div className={`font-bold text-lg flex items-center justify-end gap-2 text-neon-cyan`}>
-                    {getGridDistance(currentSector, finalDestination || targetSector)} LY
+                <div className="mt-2 flex justify-end items-center gap-4 text-[10px] text-gray-500">
+                    <span>DIST: {totalDist} LY</span>
+                    <span>JUMPS: {jumpsNeeded}</span>
                 </div>
             </div>
           </div>
@@ -216,18 +252,16 @@ export default function SectorMap() {
             className="grid place-items-center will-change-transform relative" 
             style={{ 
                 transform: `translate3d(${offset.current.x}px, ${offset.current.y}px, 0)`,
-                width: 'max-content', 
-                gap: `${GAP_SIZE}px`,
-                gridTemplateColumns: `repeat(${gridSize * 2 + 1}, ${CELL_SIZE}px)`
+                width: '0px', height: '0px', // Центруємо грід відносно точки 0,0
+                overflow: 'visible' // Дозволяємо грід-елементам виходити за межі 0x0
             }}
         >
-            {/* 🔥 ЛІНІЯ МАРШРУТУ (SVG ПОВЕРХ СІТКИ) */}
-            {/* Ми не можемо просто намалювати SVG поверх grid, бо SVG не скейлиться в Grid Gap.
-                Тому лінію малювати складно в цьому layout.
-                Але ми можемо підсвічувати шлях!
-            */}
+            {/* SVG МАРШРУТ (Рендеримо ТУТ, щоб він рухався разом з картою) */}
+            {renderRouteLine()}
 
+            {/* Грід секторів */}
             {grid.map(sectorId => {
+                const [sx, sy] = sectorId.split(':').map(Number)
                 const isCurrent = sectorId === currentSector
                 const isTarget = sectorId === targetSector
                 const isFinal = sectorId === finalDestination
@@ -235,65 +269,59 @@ export default function SectorMap() {
                 const content = getSectorContent(sectorId)
                 const dist = getGridDistance(currentSector, sectorId)
                 const isReachable = dist <= jumpRange
-                const isStation = sectorId === '0:0' // Або перевірка контенту
+                const isStation = sectorId === '0:0'
 
-                // Стилізація клітинки
+                // Позиціонування через absolute відносно центру
+                const posX = (sx - cx) * TOTAL_CELL_SIZE
+                const posY = (sy - cy) * TOTAL_CELL_SIZE
+
+                // Стилізація
                 let cellStyle = ''
-                
                 if (isCurrent) {
-                    cellStyle = 'bg-neon-cyan border-neon-cyan text-black shadow-neon z-20 scale-110'
+                    cellStyle = 'bg-neon-cyan border-neon-cyan text-black shadow-neon z-30 scale-110'
                 } else if (isTarget) {
-                    // Якщо це проміжна ціль
-                    cellStyle = 'bg-neon-orange/20 border-neon-orange text-neon-orange border-dashed z-10 animate-pulse'
+                    cellStyle = 'bg-neon-orange/20 border-neon-orange text-neon-orange border-dashed z-20 animate-pulse'
                 } else if (isFinal) {
-                    // Якщо це фінальна точка
-                    cellStyle = 'bg-yellow-500/20 border-yellow-500 text-yellow-500 border-dashed z-10'
+                    cellStyle = 'bg-yellow-500/20 border-yellow-500 text-yellow-500 border-dashed z-20'
                 } else if (isStation) {
-                    // 🔥 СТАНЦІЯ: Золота
                     cellStyle = 'bg-yellow-400/10 border-yellow-400 text-yellow-400 shadow-[inset_0_0_15px_rgba(250,204,21,0.2)]'
                 } else if (isReachable) {
-                    // В радіусі стрибка
                     if (isVisited) {
-                        if (content.hasEnemies) {
-                            cellStyle = 'bg-red-900/30 border-red-500 hover:bg-red-900/50 hover:border-red-400 text-white'
-                        } else {
-                            cellStyle = 'bg-space-800/80 border-white/20 hover:border-neon-cyan/50 hover:bg-space-700'
-                        }
+                        cellStyle = content.hasEnemies 
+                            ? 'bg-red-900/30 border-red-500 text-white' 
+                            : 'bg-space-800/80 border-white/20 hover:border-neon-cyan/50'
                     } else {
-                        // Невідомий, але досяжний (напівпрозорий)
                         cellStyle = 'bg-black/40 border-white/10 hover:border-white/30 opacity-60'
                     }
                 } else {
-                    // Недосяжний (більш видимий, ніж раніше)
-                    cellStyle = 'bg-black/20 border-white/5 opacity-50 grayscale'
+                    cellStyle = 'bg-black/20 border-white/5 opacity-30 grayscale'
                 }
 
                 return (
                     <button 
                         key={sectorId}
-                        onClick={() => handleSectorClick(sectorId)}
+                        onClick={() => !isDragging && plotCourse(sectorId)} // Використовуємо plotCourse
                         disabled={isCurrent}
-                        style={{ width: `${CELL_SIZE}px`, height: `${CELL_SIZE}px` }}
+                        style={{ 
+                            width: `${CELL_SIZE}px`, 
+                            height: `${CELL_SIZE}px`,
+                            position: 'absolute',
+                            transform: `translate(${posX}px, ${posY}px)`
+                        }}
                         className={`
-                            rounded border flex flex-col items-center justify-center relative group overflow-hidden
+                            rounded border flex flex-col items-center justify-center group overflow-hidden
                             transition-all duration-200
                             ${cellStyle}
                         `}
                     >
                         {/* Іконки */}
-                        {isStation && !isCurrent && !isTarget && !isFinal && (
-                             <div className="absolute inset-0 flex items-center justify-center opacity-30 animate-pulse">
-                                 <Home size={32} />
-                             </div>
-                        )}
-
+                        {isStation && !isCurrent && <div className="absolute inset-0 flex items-center justify-center opacity-30 animate-pulse"><Home size={32}/></div>}
+                        
                         {isVisited && !isCurrent && content.icon && (
                             <div className={`opacity-80 ${content.color} scale-75 md:scale-100 relative`}>
                                 {content.icon}
                                 {content.hasEnemies && content.type === 'resources' && (
-                                    <div className="absolute -top-1 -right-2 text-red-500 animate-pulse">
-                                        <AlertTriangle size={10} fill="currentColor" />
-                                    </div>
+                                    <div className="absolute -top-1 -right-2 text-red-500 animate-pulse"><AlertTriangle size={10} fill="currentColor" /></div>
                                 )}
                             </div>
                         )}
@@ -303,7 +331,7 @@ export default function SectorMap() {
                         </span>
                         
                         {isCurrent && <span className="text-[6px] md:text-[9px] font-black leading-none uppercase mt-1">YOU</span>}
-                        {isFinal && <Zap size={12} className="mt-1 text-yellow-500" />}
+                        {isFinal && !isTarget && <Route size={12} className="mt-1 text-yellow-500" />}
                     </button>
                 )
             })}
@@ -321,20 +349,18 @@ export default function SectorMap() {
 
         <button 
             disabled={!targetSector}
-            onClick={() => {
-                startWarp()
-                // Якщо стрибаємо, finalDestination залишається в пам'яті store (якщо ви його туди додасте), 
-                // або тут ми просто стрибаємо до наступної точки.
-            }}
+            onClick={() => startWarp()}
             className={`
                 pointer-events-auto px-10 py-3 rounded font-bold text-xs transition-all uppercase tracking-wider flex items-center gap-2
                 ${targetSector 
-                    ? 'bg-neon-cyan text-black hover:bg-white hover:scale-105 shadow-neon' 
+                    ? finalDestination ? 'bg-yellow-500 text-black hover:bg-white shadow-[0_0_20px_rgba(250,204,21,0.4)]' : 'bg-neon-cyan text-black hover:bg-white shadow-neon' 
                     : 'bg-gray-800 text-gray-500 cursor-not-allowed opacity-50'}
             `}
         >
             {targetSector ? (
-                <><Navigation size={14} className="animate-spin-slow" /> {finalDestination ? 'Jump to Next' : 'Initiate Warp'}</>
+                finalDestination 
+                ? <><Zap size={14} className="animate-pulse" /> ENGAGE AUTOPILOT</>
+                : <><Navigation size={14} className="animate-spin-slow" /> JUMP</>
             ) : (
                 'Select Destination'
             )}
