@@ -582,38 +582,90 @@ export const useGameStore = create<GameState>((set, get) => ({
   
   // 🔥 ОНОВЛЕНО: приймає amount
   extractResource: async (amountToMine: number) => { 
-      get().updatePresence()
+      // 1. Отримуємо актуальний стан
       const { localObjects, currentEventId, cargo, maxCargo, currentSector, sectorResources } = get()
+      
+      console.log(`[MINING] Trying to mine: ${amountToMine}`)
+
+      // 2. Шукаємо ціль
       const targetIdx = localObjects.findIndex(o => o.id === currentEventId)
-      if (targetIdx === -1) return
+      if (targetIdx === -1) {
+          console.warn('[MINING] Target not found!')
+          return
+      }
+      
       const target = localObjects[targetIdx]
       if (!target.data || !target.data.resource) return
+
       const resType = target.data.resource
       const amountAvailable = target.data.amount || 0
       
+      // 3. Перевірка місця
       const currentLoad = Object.values(cargo).reduce((a, b) => a + (b as number), 0)
-      if (currentLoad >= maxCargo) { get().addNotification('CARGO FULL!', 'warning'); return }
+      if (currentLoad >= maxCargo) { 
+          get().addNotification('CARGO FULL!', 'warning')
+          return 
+      }
       
-      // Використовуємо передану кількість або доступний залишок
+      // 4. Скільки реально можемо взяти
+      // Мінімум з: (запит лазера), (доступно в астероїді), (вільне місце)
       const actualMine = Math.min(amountToMine, amountAvailable, maxCargo - currentLoad)
       
+      if (actualMine <= 0) return
+
+      console.log(`[MINING] Success! Extracted: ${actualMine} ${resType}`)
+
+      // 5. Оновлюємо вантаж (новий об'єкт, щоб React побачив зміни)
       const newCargo = { ...cargo, [resType]: ((cargo[resType] as number) || 0) + actualMine }
-      const newObjects = [...localObjects]
-      newObjects[targetIdx] = { ...target, data: { ...target.data, amount: amountAvailable - actualMine } }
-      if ((newObjects[targetIdx].data?.amount || 0) <= 0) newObjects[targetIdx].type = 'debris'
       
+      // 6. Оновлюємо астероїд
+      const newObjects = [...localObjects]
+      const newAmount = amountAvailable - actualMine
+      
+      newObjects[targetIdx] = { 
+          ...target, 
+          data: { ...target.data, amount: newAmount } 
+      }
+      
+      // Якщо закінчився - перетворюємо на сміття
+      if (newAmount <= 0) {
+          newObjects[targetIdx].type = 'debris'
+          get().addNotification('DEPOSIT DEPLETED', 'info')
+          // Закриваємо вікно, якщо це був поточний об'єкт
+          // get().closeEvent() // Можна розкоментувати, якщо хочете авто-закриття
+      }
+      
+      // 7. Оновлюємо ресурси сектору (для БД)
       const newSecRes = { ...sectorResources }
       if (resType === 'Iron') newSecRes.iron -= actualMine
       if (resType === 'Gold') newSecRes.gold -= actualMine
       if (resType === 'DarkMatter') newSecRes.darkMatter -= actualMine
 
-      set({ localObjects: newObjects, cargo: newCargo, sectorResources: newSecRes, combatLog: [`> Extracted ${actualMine}T of ${resType}`] })
+      // 8. ЗАПИСУЄМО В СТАН (Zustand)
+      set({ 
+          localObjects: newObjects, 
+          cargo: newCargo, 
+          sectorResources: newSecRes, 
+          combatLog: [`> Extracted ${actualMine}T of ${resType}`] 
+      })
       
+      get().addNotification(`+${actualMine} ${resType}`, 'success')
+
+      // 9. Асинхронно оновлюємо БД
       const updateData: any = {}
       if (resType === 'Iron') updateData.iron_amount = newSecRes.iron
       if (resType === 'Gold') updateData.gold_amount = newSecRes.gold
       if (resType === 'DarkMatter') updateData.dark_matter_amount = newSecRes.darkMatter
-      supabase.from('sectors').update(updateData).eq('id', currentSector).then()
+      
+      supabase.from('sectors').update(updateData).eq('id', currentSector).then(({ error }) => {
+          if (error) console.error('[DB] Sector update failed:', error)
+      })
+      
+      // Оновлюємо профіль гравця (вантаж)
+      const userId = get().userId
+      if(userId) {
+          supabase.from('profiles').update({ cargo: newCargo }).eq('id', userId).then()
+      }
   },
   
   sellResource: (r) => { 

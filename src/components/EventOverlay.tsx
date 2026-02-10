@@ -107,12 +107,19 @@ function LaserSlot({ item, onMine }: { item: LootItem, onMine: (amount: number) 
 
 // --- ГОЛОВНИЙ КОМПОНЕНТ ---
 export default function EventOverlay() {
+  // Дістаємо ВСІ необхідні дані зі стору
   const { status, currentEventId, localObjects, closeEvent, extractResource, cargo, maxCargo, equipped } = useGameStore((state: any) => state)
 
   if (status !== 'mining' || !currentEventId) return null
 
+  // 🔥 ВАЖЛИВО: Завжди шукаємо актуальний об'єкт у масиві localObjects
   const target = localObjects.find((o: any) => o.id === currentEventId)
-  if (!target) return null
+  
+  // Якщо об'єкт зник або став сміттям (debris) - закриваємо вікно
+  if (!target || target.type === 'debris') {
+      setTimeout(closeEvent, 0) // Асинхронно, щоб уникнути конфліктів рендеру
+      return null
+  }
 
   const currentLoad = Object.values(cargo || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0)
   
