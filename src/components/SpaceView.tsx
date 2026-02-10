@@ -26,7 +26,7 @@ const SHIP_SPEEDS: Record<string, number> = {
 const SPACE_COLOR = '#02020a'
 const ARRIVAL_DISTANCE = 200 
 
-// === 🔥 ОНОВЛЕНИЙ КОМПАКТНИЙ HUD ===
+// === КОКПІТ (HUD) ===
 function CockpitHUD() {
     const { shipClass, hull, maxHull, cargo, maxCargo } = useGameStore((state: any) => state)
     const spec = SHIP_SPECS[shipClass] || SHIP_SPECS['scout']
@@ -295,7 +295,6 @@ export default function SpaceView() {
 
       {isSwitching && (
           <div className="absolute inset-0 z-20 bg-black/60 backdrop-blur-md flex items-center justify-center animate-in fade-in duration-200">
-              {/* 🔥 ВИПРАВЛЕНО: додано text-center та w-full */}
               <div className="text-neon-cyan font-mono text-xl animate-pulse tracking-[0.3em] text-center w-full px-4">
                   CALCULATING TRAJECTORY...
               </div>
@@ -381,18 +380,20 @@ export default function SpaceView() {
          </div>
      </div>
 
-     {/* МОБІЛЬНЕ НИЖНЄ МЕНЮ */}
-     <div className="md:hidden fixed bottom-0 inset-x-0 h-16 bg-space-950/90 border-t border-white/10 flex items-center justify-around z-30 px-2 backdrop-blur-lg">
-         <button onClick={() => setMobileListOpen(!isMobileListOpen)} className={`flex flex-col items-center gap-1 p-2 w-16 ${isMobileListOpen ? 'text-neon-cyan' : 'text-gray-400'}`}>
-             <List size={20} /> <span className="text-[9px]">LIST</span>
-         </button>
-         <button onClick={() => useGameStore.setState({ status: 'map' })} className="flex flex-col items-center gap-1 p-2 w-16 text-neon-orange">
-             <Navigation size={20} /> <span className="text-[9px]">MAP</span>
-         </button>
-         <div className="flex flex-col items-center gap-1 p-2 w-16 text-gray-500">
-             <Menu size={20} /> <span className="text-[9px]">MENU</span>
+     {/* 🔥 МОБІЛЬНЕ НИЖНЄ МЕНЮ (Приховується в бою) */}
+     {!inCombat && (
+         <div className="md:hidden fixed bottom-0 inset-x-0 h-16 bg-space-950/90 border-t border-white/10 flex items-center justify-around z-30 px-2 backdrop-blur-lg">
+             <button onClick={() => setMobileListOpen(!isMobileListOpen)} className={`flex flex-col items-center gap-1 p-2 w-16 ${isMobileListOpen ? 'text-neon-cyan' : 'text-gray-400'}`}>
+                 <List size={20} /> <span className="text-[9px]">LIST</span>
+             </button>
+             <button onClick={() => useGameStore.setState({ status: 'map' })} className="flex flex-col items-center gap-1 p-2 w-16 text-neon-orange">
+                 <Navigation size={20} /> <span className="text-[9px]">MAP</span>
+             </button>
+             <div className="flex flex-col items-center gap-1 p-2 w-16 text-gray-500">
+                 <Menu size={20} /> <span className="text-[9px]">MENU</span>
+             </div>
          </div>
-     </div>
+     )}
 
      {/* МОБІЛЬНИЙ СПИСОК */}
      {isMobileListOpen && (
