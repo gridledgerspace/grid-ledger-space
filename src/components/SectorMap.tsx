@@ -6,13 +6,13 @@ export default function SectorMap() {
   const { 
     currentSector, visitedSectors, targetSector, setTargetSector, 
     startWarp, plotCourse, fetchSectorGrid, sectorDetails, localObjects,
-    jumpRange, finalDestination // Додано finalDestination для розрахунків
+    jumpRange, finalDestination 
   } = useGameStore((state: any) => state)
 
   const [viewCenter, setViewCenter] = useState(currentSector || '0:0')
   const [isLoading, setIsLoading] = useState(false)
 
-  // === СТАБІЛЬНИЙ ДРАГ-Н-ДРОП (ПОВЕРНУТО ВАШУ ВЕРСІЮ) ===
+  // === СТАБІЛЬНИЙ ДРАГ-Н-ДРОП ===
   const [isDragging, setIsDragging] = useState(false)
   const offset = useRef({ x: 0, y: 0 }) 
   const dragStart = useRef({ x: 0, y: 0 })
@@ -86,7 +86,6 @@ export default function SectorMap() {
       if (isDragging) return
       if (id === currentSector) return
       
-      // Логіка автопілоту (якщо є в store) або просто вибір
       if (plotCourse) plotCourse(id)
       else setTargetSector(id)
   }
@@ -121,12 +120,14 @@ export default function SectorMap() {
       return { type: 'unknown', icon: null, color: 'text-gray-800', hasEnemies: false }
   }
 
-  // 🔥 Виправлення TS: змінна isTargetReachable тепер визначена
   const isTargetReachable = targetSector && getGridDistance(currentSector, targetSector) <= jumpRange
 
   // === ГЕНЕРАЦІЯ СІТКИ ===
   const [cx, cy] = viewCenter.split(':').map(Number)
-  const gridSize = 8 // 🔥 ЗБІЛЬШЕНО РАДІУС (було 4, стало 8)
+  
+  // 🔥 ЗБІЛЬШЕНО РАДІУС ДО 15 (31x31 секторів)
+  const gridSize = 15 
+  
   const grid = []
   for (let y = cy - gridSize; y <= cy + gridSize; y++) {
     for (let x = cx - gridSize; x <= cx + gridSize; x++) {
@@ -134,7 +135,7 @@ export default function SectorMap() {
     }
   }
 
-  // === РОЗРАХУНОК СТРИБКІВ (Замість стрілок) ===
+  // === РОЗРАХУНОК СТРИБКІВ ===
   const targetForCalc = finalDestination || targetSector
   const totalDist = targetForCalc ? getGridDistance(currentSector, targetForCalc) : 0
   const jumpsNeeded = Math.ceil(totalDist / jumpRange)
@@ -164,7 +165,7 @@ export default function SectorMap() {
         </button>
       </div>
 
-      {/* TARGET PANEL (З кількістю стрибків) */}
+      {/* TARGET PANEL */}
       {targetSector && (
           <div className="absolute top-20 right-4 z-20 pointer-events-none animate-in slide-in-from-right">
              <div className="glass-panel p-4 text-right border-r-4 border-r-neon-orange pointer-events-auto min-w-[140px] bg-black/80 backdrop-blur-md">
@@ -204,7 +205,7 @@ export default function SectorMap() {
           </div>
       )}
 
-      {/* MAP AREA (ГРІД БЕЗ SVG) */}
+      {/* MAP AREA */}
       <div 
         className="flex-1 relative z-10 overflow-hidden cursor-move flex items-center justify-center touch-none"
         onPointerDown={handlePointerDown}
