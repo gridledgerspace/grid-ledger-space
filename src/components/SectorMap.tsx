@@ -1,19 +1,18 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useGameStore, getGridDistance } from '../store'
 import { Navigation, MapPin, Loader2, LocateFixed, Rocket, Home, Skull, Gem, CircleDashed, Ban, AlertTriangle, Zap, Route } from 'lucide-react'
 
 export default function SectorMap() {
   const { 
     currentSector, visitedSectors, targetSector, setTargetSector, 
-    startWarp, fetchSectorGrid, sectorDetails, localObjects,
-    jumpRange, 
-    finalDestination, plotCourse 
+    startWarp, plotCourse, fetchSectorGrid, sectorDetails, localObjects,
+    jumpRange, finalDestination // Додано finalDestination для розрахунків
   } = useGameStore((state: any) => state)
 
   const [viewCenter, setViewCenter] = useState(currentSector || '0:0')
   const [isLoading, setIsLoading] = useState(false)
 
-  // === СТАБІЛЬНИЙ ДРАГ-Н-ДРОП (Ваш код) ===
+  // === СТАБІЛЬНИЙ ДРАГ-Н-ДРОП (ПОВЕРНУТО ВАШУ ВЕРСІЮ) ===
   const [isDragging, setIsDragging] = useState(false)
   const offset = useRef({ x: 0, y: 0 }) 
   const dragStart = useRef({ x: 0, y: 0 })
@@ -57,9 +56,6 @@ export default function SectorMap() {
     if (!isDragging) return
     setIsDragging(false)
 
-    // Плавна доводка (з вашого коду)
-    if (mapRef.current) mapRef.current.style.transition = 'transform 0.5s ease-out' // Трохи пом'якшив анімацію
-
     const dx = e.clientX - dragStart.current.x
     const dy = e.clientY - dragStart.current.y
     const currentTotalX = offset.current.x + dx
@@ -89,6 +85,8 @@ export default function SectorMap() {
   const handleSectorClick = (id: string) => {
       if (isDragging) return
       if (id === currentSector) return
+      
+      // Логіка автопілоту (якщо є в store) або просто вибір
       if (plotCourse) plotCourse(id)
       else setTargetSector(id)
   }
@@ -123,88 +121,22 @@ export default function SectorMap() {
       return { type: 'unknown', icon: null, color: 'text-gray-800', hasEnemies: false }
   }
 
+  // 🔥 Виправлення TS: змінна isTargetReachable тепер визначена
   const isTargetReachable = targetSector && getGridDistance(currentSector, targetSector) <= jumpRange
 
-  // === ГЕНЕРАЦІЯ СІТКИ (РАДІУС 8) ===
+  // === ГЕНЕРАЦІЯ СІТКИ ===
   const [cx, cy] = viewCenter.split(':').map(Number)
-  const gridSize = 8 // 🔥 Збільшений радіус
-  
-  const gridCells = useMemo(() => {
-      const cells = []
-      for (let y = cy - gridSize; y <= cy + gridSize; y++) {
-          for (let x = cx - gridSize; x <= cx + gridSize; x++) {
-              cells.push(`${x}:${y}`)
-          }
-      }
-      return cells
-  }, [cx, cy])
-
-  // === 🔥 ФУНКЦІЯ КООРДИНАТ ДЛЯ СТРІЛОК І КНОПОК ===
-  // Обчислює позицію відносно центру екрану (0,0)
-  const getRelativePosition = (sectorId: string) => {
-      if (!sectorId) return null
-      const [sx, sy] = sectorId.split(':').map(Number)
-      
-      // Відстань від центру перегляду в пікселях
-      const x = (sx - cx) * TOTAL_CELL_SIZE
-      const y = (sy - cy) * TOTAL_CELL_SIZE
-      
-      return { 
-          left: x, 
-          top: y,
-          // Центр клітинки (для стрілок)
-          centerX: x + (CELL_SIZE / 2),
-          centerY: y + (CELL_SIZE / 2)
-      }
+  const gridSize = 8 // 🔥 ЗБІЛЬШЕНО РАДІУС (було 4, стало 8)
+  const grid = []
+  for (let y = cy - gridSize; y <= cy + gridSize; y++) {
+    for (let x = cx - gridSize; x <= cx + gridSize; x++) {
+      grid.push(`${x}:${y}`)
+    }
   }
 
-  const renderArrows = () => {
-      const start = getRelativePosition(currentSector)
-      const mid = getRelativePosition(targetSector)
-      const end = finalDestination ? getRelativePosition(finalDestination) : null
-
-      if (!start || !mid) return null
-
-      return (
-          // SVG "плаває" всередині контейнера разом з кнопками
-          <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-50 overflow-visible">
-              <defs>
-                  <marker id="arrow-blue" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-                      <path d="M0,0 L0,6 L6,3 z" fill="#00f0ff" />
-                  </marker>
-                  <marker id="arrow-gold" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-                      <path d="M0,0 L0,6 L6,3 z" fill="#fbbf24" />
-                  </marker>
-              </defs>
-
-              {/* ЛІНІЯ 1: СИНЯ (Current -> Target) */}
-              <line 
-                  x1={start.centerX} y1={start.centerY} 
-                  x2={mid.centerX} y2={mid.centerY} 
-                  stroke="#00f0ff" 
-                  strokeWidth="3" 
-                  strokeDasharray="8,4"
-                  markerEnd="url(#arrow-blue)"
-                  className="animate-pulse"
-              />
-
-              {/* ЛІНІЯ 2: ЗОЛОТА (Target -> Final) */}
-              {end && (
-                  <line 
-                      x1={mid.centerX} y1={mid.centerY} 
-                      x2={end.centerX} y2={end.centerY} 
-                      stroke="#fbbf24" 
-                      strokeWidth="3" 
-                      strokeDasharray="8,4"
-                      markerEnd="url(#arrow-gold)"
-                      opacity="0.8"
-                  />
-              )}
-          </svg>
-      )
-  }
-
-  const totalDist = finalDestination ? getGridDistance(currentSector, finalDestination) : (targetSector ? getGridDistance(currentSector, targetSector) : 0)
+  // === РОЗРАХУНОК СТРИБКІВ (Замість стрілок) ===
+  const targetForCalc = finalDestination || targetSector
+  const totalDist = targetForCalc ? getGridDistance(currentSector, targetForCalc) : 0
   const jumpsNeeded = Math.ceil(totalDist / jumpRange)
 
   return (
@@ -232,32 +164,47 @@ export default function SectorMap() {
         </button>
       </div>
 
-      {/* TARGET PANEL */}
+      {/* TARGET PANEL (З кількістю стрибків) */}
       {targetSector && (
           <div className="absolute top-20 right-4 z-20 pointer-events-none animate-in slide-in-from-right">
              <div className="glass-panel p-4 text-right border-r-4 border-r-neon-orange pointer-events-auto min-w-[140px] bg-black/80 backdrop-blur-md">
                 <div className="text-[10px] text-gray-400 uppercase tracking-wider">
-                    {finalDestination ? 'Final Destination' : 'Target'}
+                    {finalDestination ? 'FINAL DESTINATION' : 'TARGET'}
                 </div>
                 <div className={`font-bold text-xl ${finalDestination ? 'text-yellow-400' : 'text-white'}`}>
                     {finalDestination || targetSector}
                 </div>
                 
                 {finalDestination && (
-                    <div className="text-neon-cyan text-[10px] mt-1 flex items-center justify-end gap-1">
+                    <div className="text-[10px] text-neon-cyan mt-1 flex items-center justify-end gap-1">
                         <Zap size={10}/> VIA: {targetSector}
                     </div>
                 )}
                 
-                <div className="mt-2 flex justify-end items-center gap-4 text-[10px] text-gray-500">
-                    <span>DIST: {totalDist} LY</span>
-                    <span>JUMPS: {jumpsNeeded}</span>
+                <div className="mt-3 border-t border-white/10 pt-2">
+                    <div className="text-[9px] text-gray-500">TRAVEL INFO</div>
+                    <div className="flex justify-end gap-3 mt-1">
+                        <div className="flex flex-col items-end">
+                            <span className="text-[9px] text-gray-400">DIST</span>
+                            <span className="text-neon-cyan font-bold">{totalDist} LY</span>
+                        </div>
+                        <div className="flex flex-col items-end">
+                            <span className="text-[9px] text-gray-400">JUMPS</span>
+                            <span className={`font-bold ${jumpsNeeded > 1 ? 'text-yellow-400' : 'text-white'}`}>{jumpsNeeded}</span>
+                        </div>
+                    </div>
                 </div>
+                
+                {!isTargetReachable && !finalDestination && (
+                    <div className="mt-2 text-red-500 text-[10px] flex items-center justify-end gap-1">
+                        <Ban size={10}/> OUT OF RANGE
+                    </div>
+                )}
             </div>
           </div>
       )}
 
-      {/* MAP AREA */}
+      {/* MAP AREA (ГРІД БЕЗ SVG) */}
       <div 
         className="flex-1 relative z-10 overflow-hidden cursor-move flex items-center justify-center touch-none"
         onPointerDown={handlePointerDown}
@@ -265,25 +212,17 @@ export default function SectorMap() {
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
       >
-        {/* 🔥 КЛЮЧОВИЙ МОМЕНТ: Контейнер центрується Flexbox-ом батька, а transform рухає його.
-            Внутрішні елементи позиціонуються абсолютно відносно цього центру (0,0). 
-        */}
         <div 
             ref={mapRef}
-            className="absolute top-1/2 left-1/2 will-change-transform" // Центруємо точку відліку
+            className="grid place-items-center will-change-transform" 
             style={{ 
                 transform: `translate3d(${offset.current.x}px, ${offset.current.y}px, 0)`,
-                width: 0, height: 0, overflow: 'visible' // Це просто точка прив'язки
+                width: 'max-content', 
+                gap: `${GAP_SIZE}px`,
+                gridTemplateColumns: `repeat(${gridSize * 2 + 1}, ${CELL_SIZE}px)`
             }}
         >
-            {/* Рендер стрілок (Шар 1) */}
-            {renderArrows()}
-
-            {/* Рендер кнопок (Шар 2) */}
-            {gridCells.map(sectorId => {
-                const pos = getRelativePosition(sectorId)
-                if (!pos) return null
-
+            {grid.map(sectorId => {
                 const isCurrent = sectorId === currentSector
                 const isTarget = sectorId === targetSector
                 const isFinal = sectorId === finalDestination
@@ -293,13 +232,14 @@ export default function SectorMap() {
                 const isReachable = dist <= jumpRange
                 const isStation = sectorId === '0:0'
 
+                // Стилі клітинки
                 let cellStyle = ''
                 if (isCurrent) {
                     cellStyle = 'bg-neon-cyan border-neon-cyan text-black shadow-neon z-20 scale-110'
                 } else if (isTarget) {
                     cellStyle = 'bg-neon-orange/20 border-neon-orange text-neon-orange border-dashed z-10'
                 } else if (isFinal) {
-                    cellStyle = 'bg-yellow-500/20 border-yellow-500 text-yellow-500 border-dashed z-10'
+                    cellStyle = 'bg-yellow-500/20 border-yellow-500 text-yellow-500 border-dashed z-10 animate-pulse'
                 } else if (isStation) {
                     cellStyle = 'bg-yellow-400/10 border-yellow-400 text-yellow-400 shadow-[inset_0_0_15px_rgba(250,204,21,0.2)]'
                 } else if (isReachable) {
@@ -308,7 +248,7 @@ export default function SectorMap() {
                             ? 'bg-red-900/30 border-red-500 text-white' 
                             : 'bg-space-800/80 border-white/20 hover:border-neon-cyan/50 hover:bg-space-700'
                     } else {
-                        cellStyle = 'bg-black/40 border-white/10 hover:border-white/30 opacity-70'
+                        cellStyle = 'bg-black/40 border-white/10 hover:border-white/30 opacity-80'
                     }
                 } else {
                     cellStyle = 'bg-black/20 border-white/5 opacity-40 grayscale'
@@ -319,16 +259,7 @@ export default function SectorMap() {
                         key={sectorId}
                         onClick={() => !isDragging && handleSectorClick(sectorId)}
                         disabled={isCurrent}
-                        style={{ 
-                            width: `${CELL_SIZE}px`, 
-                            height: `${CELL_SIZE}px`,
-                            position: 'absolute',
-                            left: pos.left,
-                            top: pos.top,
-                            // Зміщуємо на половину розміру, щоб координати вказували на центр кнопки
-                            transform: 'translate(-50%, -50%)', 
-                            zIndex: 10
-                        }}
+                        style={{ width: `${CELL_SIZE}px`, height: `${CELL_SIZE}px` }}
                         className={`
                             rounded border flex flex-col items-center justify-center relative group overflow-hidden
                             transition-colors duration-200
@@ -347,7 +278,7 @@ export default function SectorMap() {
                         )}
                         
                         <span className={`text-[8px] md:text-[10px] font-mono mt-0.5 ${isCurrent ? 'font-black' : 'text-gray-500'}`}>
-                            {isVisited || isTarget || isFinal || isStation ? sectorId : ''}
+                            {isVisited || isStation || isTarget || isFinal ? sectorId : ''}
                         </span>
                         
                         {isCurrent && <span className="text-[6px] md:text-[9px] font-black leading-none uppercase mt-1">YOU</span>}
@@ -380,7 +311,7 @@ export default function SectorMap() {
             {targetSector ? (
                 finalDestination 
                 ? <><Zap size={14} className="animate-pulse" /> ENGAGE AUTOPILOT</>
-                : <><Navigation size={14} className="animate-spin-slow" /> Initiate Warp</>
+                : <><Navigation size={14} className="animate-spin-slow" /> JUMP</>
             ) : (
                 'Select Destination'
             )}
