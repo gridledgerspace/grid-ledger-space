@@ -1,18 +1,20 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useGameStore, getGridDistance } from '../store'
 import { Navigation, MapPin, Loader2, LocateFixed, Rocket, Home, Skull, Gem, CircleDashed, Ban, AlertTriangle, Zap, Route } from 'lucide-react'
 
 export default function SectorMap() {
   const { 
-    currentSector, visitedSectors, targetSector, setTargetSector, finalDestination,
-    startWarp, plotCourse, fetchSectorGrid, sectorDetails, localObjects,
-    jumpRange 
+    currentSector, visitedSectors, targetSector, setTargetSector, 
+    startWarp, fetchSectorGrid, sectorDetails, localObjects,
+    jumpRange, 
+    // 🔥 НОВЕ: дістаємо змінні для автопілоту
+    finalDestination, plotCourse 
   } = useGameStore((state: any) => state)
 
   const [viewCenter, setViewCenter] = useState(currentSector || '0:0')
   const [isLoading, setIsLoading] = useState(false)
 
-  // === СТАБІЛЬНИЙ ДРАГ-Н-ДРОП ===
+  // === ДРАГ-Н-ДРОП (ВАША СТАБІЛЬНА ВЕРСІЯ) ===
   const [isDragging, setIsDragging] = useState(false)
   const offset = useRef({ x: 0, y: 0 }) 
   const dragStart = useRef({ x: 0, y: 0 })
@@ -41,10 +43,7 @@ export default function SectorMap() {
   const handlePointerDown = (e: React.PointerEvent) => {
     setIsDragging(true)
     dragStart.current = { x: e.clientX, y: e.clientY }
-    if (mapRef.current) {
-        mapRef.current.style.transition = 'none'
-        mapRef.current.setPointerCapture(e.pointerId) // Фікс "втрати" курсора
-    }
+    if (mapRef.current) mapRef.current.style.transition = 'none'
   }
 
   const handlePointerMove = (e: React.PointerEvent) => {
@@ -58,11 +57,6 @@ export default function SectorMap() {
   const handlePointerUp = (e: React.PointerEvent) => {
     if (!isDragging) return
     setIsDragging(false)
-    
-    if (mapRef.current) {
-        mapRef.current.releasePointerCapture(e.pointerId)
-        mapRef.current.style.transition = 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)'
-    }
 
     const dx = e.clientX - dragStart.current.x
     const dy = e.clientY - dragStart.current.y
@@ -87,20 +81,35 @@ export default function SectorMap() {
   const centerOnPlayer = () => {
       setViewCenter(currentSector)
       offset.current = { x: 0, y: 0 }
-      if (mapRef.current) mapRef.current.style.transition = 'transform 0.5s ease-in-out'
       applyTransform(0, 0)
   }
 
+  // === 🔥 1. ВЕЛИКИЙ РАДІУС (Щоб не було видно країв) ===
+  const [cx, cy] = viewCenter.split(':').map(Number)
+  const gridSize = 8 // Було 4. Збільшив до 8 (це ~17x17 клітинок), вистачить на будь-який монітор.
+  const grid = []
+  for (let y = cy - gridSize; y <= cy + gridSize; y++) {
+    for (let x = cx - gridSize; x <= cx + gridSize; x++) {
+      grid.push(`${x}:${y}`)
+    }
+  }
+
+  // === 🔥 2. ЛОГІКА КЛІКУ (АВТОПІЛОТ) ===
   const handleSectorClick = (id: string) => {
       if (isDragging) return
       if (id === currentSector) return
-      if (plotCourse) plotCourse(id)
-      else setTargetSector(id)
+
+      // Якщо в store є функція plotCourse - юзаємо її, інакше просто вибираємо
+      if (plotCourse) {
+          plotCourse(id)
+      } else {
+          setTargetSector(id)
+      }
   }
 
-  // --- ВІЗУАЛІЗАЦІЯ ---
+  // === ВІЗУАЛІЗАЦІЯ ===
   const getSectorContent = (id: string) => {
-      if (id === '0:0') return { type: 'station', icon: <Home size={16}/>, color: 'text-yellow-400', hasEnemies: false }
+      if (id === '0:0') return { type: 'station', icon: <Home size={16}/>, color: 'text-yellow-400', hasEnemies: false } // Золота станція
       
       let hasEnemies = false
       let hasResources = false
@@ -130,55 +139,28 @@ export default function SectorMap() {
 
   const isTargetReachable = targetSector && getGridDistance(currentSector, targetSector) <= jumpRange
 
-  // === ГЕНЕРАЦІЯ СІТКИ (GRID) ===
-  const [cx, cy] = viewCenter.split(':').map(Number)
-  const gridSize = 5 // Радіус
-  
-  // Використовуємо useMemo, щоб грід не перераховувався дарма
-  const gridCells = useMemo(() => {
-      const cells = []
-      for (let y = cy - gridSize; y <= cy + gridSize; y++) {
-          for (let x = cx - gridSize; x <= cx + gridSize; x++) {
-              cells.push(`${x}:${y}`)
-          }
-      }
-      return cells
-  }, [cx, cy])
-
-  // === 🔥 РОЗРАХУНОК СТРІЛОК ВІДНОСНО GRID ===
-  // Оскільки ми використовуємо CSS Grid, координати (0,0) у SVG - це лівий верхній кут контейнера.
-  // Нам треба знайти, де знаходиться потрібний сектор ВІДНОСНО лівого верхнього сектора гріда.
-  const getRelativeCoords = (sectorId: string) => {
-      if (!sectorId) return null
-      const [sx, sy] = sectorId.split(':').map(Number)
-      
-      // Лівий верхній сектор гріда:
-      const startX = cx - gridSize
-      const startY = cy - gridSize
-
-      // Індекс колонки та рядка (0...gridSize*2)
-      const colIndex = sx - startX
-      const rowIndex = sy - startY
-
-      // Переводимо в пікселі
-      // (Індекс * Розмір) + Половина клітинки (центр)
-      const x = (colIndex * TOTAL_CELL_SIZE) + (CELL_SIZE / 2)
-      const y = (rowIndex * TOTAL_CELL_SIZE) + (CELL_SIZE / 2)
-
-      return { x, y }
-  }
-
+  // === 🔥 3. ВІЗУАЛІЗАЦІЯ СТРІЛОК (Поверх сітки, але всередині ref) ===
   const renderArrows = () => {
       if (!targetSector) return null
 
-      const start = getRelativeCoords(currentSector)
-      const mid = getRelativeCoords(targetSector)
-      const end = finalDestination ? getRelativeCoords(finalDestination) : null
+      // Функція для отримання координат центру клітинки
+      const getCenter = (id: string) => {
+          const [sx, sy] = id.split(':').map(Number)
+          // Рахуємо відносно поточного центру перегляду (cx, cy), бо грід будується від нього
+          const relX = (sx - cx) * TOTAL_CELL_SIZE
+          const relY = (sy - cy) * TOTAL_CELL_SIZE
+          return {
+              x: relX + (CELL_SIZE / 2),
+              y: relY + (CELL_SIZE / 2)
+          }
+      }
 
-      if (!start || !mid) return null
+      const start = getCenter(currentSector)
+      const mid = getCenter(targetSector)
+      const end = finalDestination ? getCenter(finalDestination) : null
 
       return (
-          <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-10 overflow-visible">
+          <svg className="absolute top-0 left-0 overflow-visible pointer-events-none z-50" style={{ width: '1px', height: '1px' }}>
               <defs>
                   <marker id="arrow-blue" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
                       <path d="M0,0 L0,6 L6,3 z" fill="#00f0ff" />
@@ -188,7 +170,7 @@ export default function SectorMap() {
                   </marker>
               </defs>
 
-              {/* Лінія 1: Старт -> Проміжна */}
+              {/* Стрілка 1: Гравець -> Проміжна ціль */}
               <line 
                   x1={start.x} y1={start.y} 
                   x2={mid.x} y2={mid.y} 
@@ -199,7 +181,7 @@ export default function SectorMap() {
                   className="animate-pulse"
               />
 
-              {/* Лінія 2: Проміжна -> Фінал */}
+              {/* Стрілка 2: Проміжна ціль -> Фінал (якщо є) */}
               {end && (
                   <line 
                       x1={mid.x} y1={mid.y} 
@@ -215,14 +197,13 @@ export default function SectorMap() {
       )
   }
 
-  // Інфо для футера
+  // Для футера
   const totalDist = finalDestination ? getGridDistance(currentSector, finalDestination) : (targetSector ? getGridDistance(currentSector, targetSector) : 0)
   const jumpsNeeded = Math.ceil(totalDist / jumpRange)
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col font-mono text-white h-[100dvh] overflow-hidden select-none touch-none">
       
-      {/* Background */}
       <div className="absolute inset-0 z-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-space-900 via-black to-black opacity-80" />
       <div className="absolute inset-0 z-0 opacity-20" 
            style={{ backgroundImage: 'linear-gradient(#333 1px, transparent 1px), linear-gradient(90deg, #333 1px, transparent 1px)', backgroundSize: '40px 40px' }}>
@@ -249,21 +230,23 @@ export default function SectorMap() {
           <div className="absolute top-20 right-4 z-20 pointer-events-none animate-in slide-in-from-right">
              <div className="glass-panel p-4 text-right border-r-4 border-r-neon-orange pointer-events-auto min-w-[140px] bg-black/80 backdrop-blur-md">
                 <div className="text-[10px] text-gray-400 uppercase tracking-wider">
-                    {finalDestination ? 'FINAL DESTINATION' : 'NEXT JUMP'}
+                    {finalDestination ? 'Final Destination' : 'Target'}
                 </div>
                 <div className={`font-bold text-xl ${finalDestination ? 'text-yellow-400' : 'text-white'}`}>
                     {finalDestination || targetSector}
                 </div>
                 
                 {finalDestination && (
-                    <div className="text-neon-cyan text-[10px] mt-1 flex items-center justify-end gap-1">
+                    <div className="text-[10px] text-neon-cyan flex items-center justify-end gap-1 mt-1">
                         <Zap size={10}/> VIA: {targetSector}
                     </div>
                 )}
-                
-                <div className="mt-2 flex justify-end items-center gap-4 text-[10px] text-gray-500">
-                    <span>DIST: {totalDist} LY</span>
-                    <span>JUMPS: {jumpsNeeded}</span>
+
+                <div className="mt-2 text-[10px] text-gray-500">DISTANCE</div>
+                <div className={`font-bold text-lg flex items-center justify-end gap-2 ${isTargetReachable ? 'text-neon-cyan' : 'text-red-500'}`}>
+                    {totalDist} LY 
+                    <span className="text-xs text-gray-500">({jumpsNeeded} JUMPS)</span>
+                    {!isTargetReachable && !finalDestination && <Ban size={14}/>}
                 </div>
             </div>
           </div>
@@ -279,19 +262,20 @@ export default function SectorMap() {
       >
         <div 
             ref={mapRef}
-            className="grid place-items-center will-change-transform relative" // relative для SVG
+            className="grid place-items-center will-change-transform relative" // Relative потрібен для SVG
             style={{ 
                 transform: `translate3d(${offset.current.x}px, ${offset.current.y}px, 0)`,
                 width: 'max-content', 
                 gap: `${GAP_SIZE}px`,
-                // Важливо: CSS Grid структура повинна бути строгою
                 gridTemplateColumns: `repeat(${gridSize * 2 + 1}, ${CELL_SIZE}px)`
             }}
         >
-            {/* 🔥 СТРІЛКИ ВСЕРЕДИНІ КОНТЕЙНЕРА GRID 🔥 */}
+            {/* 🔥 МАЛЮЄМО СТРІЛКИ ПЕРЕД КНОПКАМИ (АБО ПІСЛЯ - ПОРЯДОК ВАЖЛИВИЙ ДЛЯ Z-INDEX) */}
+            {/* Тут вони будуть під кнопками, але якщо ми дамо їм z-index вище, то будуть над. */}
+            {/* Я ставлю їх ПІСЛЯ map, але тут зручніше вставити в DOM потік */}
             {renderArrows()}
 
-            {gridCells.map(sectorId => {
+            {grid.map(sectorId => {
                 const isCurrent = sectorId === currentSector
                 const isTarget = sectorId === targetSector
                 const isFinal = sectorId === finalDestination
@@ -301,14 +285,14 @@ export default function SectorMap() {
                 const isReachable = dist <= jumpRange
                 const isStation = sectorId === '0:0'
 
-                // Стилі клітинки
+                // Стилізація
                 let cellStyle = ''
                 if (isCurrent) {
                     cellStyle = 'bg-neon-cyan border-neon-cyan text-black shadow-neon z-20 scale-110'
                 } else if (isTarget) {
-                    cellStyle = 'bg-neon-orange/20 border-neon-orange text-neon-orange border-dashed z-20 animate-pulse'
+                    cellStyle = 'bg-neon-orange/20 border-neon-orange text-neon-orange border-dashed z-10'
                 } else if (isFinal) {
-                    cellStyle = 'bg-yellow-500/20 border-yellow-500 text-yellow-500 border-dashed z-20'
+                    cellStyle = 'bg-yellow-500/20 border-yellow-500 text-yellow-500 border-dashed z-10'
                 } else if (isStation) {
                     cellStyle = 'bg-yellow-400/10 border-yellow-400 text-yellow-400 shadow-[inset_0_0_15px_rgba(250,204,21,0.2)]'
                 } else if (isReachable) {
@@ -317,7 +301,7 @@ export default function SectorMap() {
                             ? 'bg-red-900/30 border-red-500 text-white' 
                             : 'bg-space-800/80 border-white/20 hover:border-neon-cyan/50 hover:bg-space-700'
                     } else {
-                        cellStyle = 'bg-black/40 border-white/10 hover:border-white/30 opacity-70'
+                        cellStyle = 'bg-black/40 border-white/10 hover:border-white/30'
                     }
                 } else {
                     cellStyle = 'bg-black/20 border-white/5 opacity-40 grayscale'
@@ -328,9 +312,9 @@ export default function SectorMap() {
                         key={sectorId}
                         onClick={() => !isDragging && handleSectorClick(sectorId)}
                         disabled={isCurrent}
-                        style={{ width: `${CELL_SIZE}px`, height: `${CELL_SIZE}px`, position: 'relative', zIndex: 20 }} // zIndex щоб бути над SVG
+                        style={{ width: `${CELL_SIZE}px`, height: `${CELL_SIZE}px` }}
                         className={`
-                            rounded border flex flex-col items-center justify-center group overflow-hidden
+                            rounded border flex flex-col items-center justify-center relative group overflow-hidden
                             transition-colors duration-200
                             ${cellStyle}
                         `}
@@ -347,7 +331,7 @@ export default function SectorMap() {
                         )}
                         
                         <span className={`text-[8px] md:text-[10px] font-mono mt-0.5 ${isCurrent ? 'font-black' : 'text-gray-500'}`}>
-                            {isVisited || isTarget || isFinal || isStation ? sectorId : ''}
+                            {isVisited || isStation || isTarget || isFinal ? sectorId : ''}
                         </span>
                         
                         {isCurrent && <span className="text-[6px] md:text-[9px] font-black leading-none uppercase mt-1">YOU</span>}
