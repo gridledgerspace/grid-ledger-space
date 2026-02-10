@@ -1,18 +1,18 @@
 import { useState, useEffect, useRef } from 'react'
 import { useGameStore, getGridDistance } from '../store'
-import { Navigation, MapPin, Loader2, LocateFixed, Rocket, Home, Skull, Gem, CircleDashed, AlertTriangle, Zap, Route } from 'lucide-react'
+import { Navigation, MapPin, Loader2, LocateFixed, Rocket, Home, Skull, Gem, CircleDashed, Ban, AlertTriangle } from 'lucide-react'
 
 export default function SectorMap() {
   const { 
-    currentSector, visitedSectors, targetSector, finalDestination,
-    startWarp, plotCourse, fetchSectorGrid, sectorDetails, localObjects,
+    currentSector, visitedSectors, targetSector, setTargetSector, // 🔥 ВИПРАВЛЕНО: Додано setTargetSector
+    startWarp, fetchSectorGrid, sectorDetails, localObjects,
     jumpRange 
   } = useGameStore((state: any) => state)
 
   const [viewCenter, setViewCenter] = useState(currentSector || '0:0')
   const [isLoading, setIsLoading] = useState(false)
 
-  // === ДРАГ-Н-ДРОП ===
+  // === ДРАГ-Н-ДРОП (Ваша стабільна версія) ===
   const [isDragging, setIsDragging] = useState(false)
   const offset = useRef({ x: 0, y: 0 }) 
   const dragStart = useRef({ x: 0, y: 0 })
@@ -38,21 +38,14 @@ export default function SectorMap() {
       }
   }
 
-  // 🔥 ВИПРАВЛЕННЯ ПОСМИКУВАННЯ (JITTER FIX)
   const handlePointerDown = (e: React.PointerEvent) => {
     setIsDragging(true)
     dragStart.current = { x: e.clientX, y: e.clientY }
-    
-    if (mapRef.current) {
-        // Миттєво вимикаємо анімацію для прямого контролю
-        mapRef.current.style.transition = 'none'
-        // "Захоплюємо" курсор, щоб рух був плавним навіть якщо мишка вийде за межі div
-        mapRef.current.setPointerCapture(e.pointerId)
-    }
+    if (mapRef.current) mapRef.current.style.transition = 'none'
   }
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDragging || !mapRef.current) return
+    if (!isDragging) return
     e.preventDefault() 
     const dx = e.clientX - dragStart.current.x
     const dy = e.clientY - dragStart.current.y
@@ -60,20 +53,14 @@ export default function SectorMap() {
   }
 
   const handlePointerUp = (e: React.PointerEvent) => {
-    if (!isDragging || !mapRef.current) return
+    if (!isDragging) return
     setIsDragging(false)
-    
-    // Відпускаємо курсор
-    mapRef.current.releasePointerCapture(e.pointerId)
-    // Вмикаємо плавну анімацію для "доводки" до сітки
-    mapRef.current.style.transition = 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)'
 
     const dx = e.clientX - dragStart.current.x
     const dy = e.clientY - dragStart.current.y
     const currentTotalX = offset.current.x + dx
     const currentTotalY = offset.current.y + dy
 
-    // Магнітимо до сітки
     const sectorsX = -Math.round(currentTotalX / TOTAL_CELL_SIZE)
     const sectorsY = -Math.round(currentTotalY / TOTAL_CELL_SIZE)
 
@@ -92,18 +79,12 @@ export default function SectorMap() {
   const centerOnPlayer = () => {
       setViewCenter(currentSector)
       offset.current = { x: 0, y: 0 }
-      if (mapRef.current) mapRef.current.style.transition = 'transform 0.5s ease-in-out'
       applyTransform(0, 0)
-  }
-
-  const handleSectorClick = (id: string) => {
-      if (isDragging) return
-      if (id === currentSector) return
-      plotCourse(id)
   }
 
   // --- ВІЗУАЛІЗАЦІЯ ---
   const getSectorContent = (id: string) => {
+      // 🔥 ЗОЛОТА СТАНЦІЯ: змінив колір на жовтий
       if (id === '0:0') return { type: 'station', icon: <Home size={16}/>, color: 'text-yellow-400', hasEnemies: false }
       
       let hasEnemies = false
@@ -132,77 +113,17 @@ export default function SectorMap() {
       return { type: 'unknown', icon: null, color: 'text-gray-800', hasEnemies: false }
   }
 
-  // Генерація масиву для сітки
+  // 🔥 ВИПРАВЛЕНО: Ця змінна тепер точно використовується у return
+  const isTargetReachable = targetSector && getGridDistance(currentSector, targetSector) <= jumpRange
+
   const [cx, cy] = viewCenter.split(':').map(Number)
-  const gridSize = 5 
+  const gridSize = 4 
   const grid = []
   for (let y = cy - gridSize; y <= cy + gridSize; y++) {
     for (let x = cx - gridSize; x <= cx + gridSize; x++) {
       grid.push(`${x}:${y}`)
     }
   }
-
-  // --- 🔥 ЛІНІЇ МАРШРУТУ (ВИПРАВЛЕНО СТИЛЬ І ПОЗИЦІЮ) ---
-  const renderRouteLines = () => {
-      const getPos = (secId: string) => {
-          if (!secId) return { x: 0, y: 0 }
-          const [sx, sy] = secId.split(':').map(Number)
-          const relX = sx - cx
-          const relY = sy - cy
-          return {
-              x: (relX * TOTAL_CELL_SIZE) + (CELL_SIZE / 2),
-              y: (relY * TOTAL_CELL_SIZE) + (CELL_SIZE / 2)
-          }
-      }
-
-      const start = getPos(currentSector)
-      const next = targetSector ? getPos(targetSector) : null
-      const end = finalDestination ? getPos(finalDestination) : null
-
-      return (
-          // 🔥 Z-INDEX 40: Малюємо поверх усього іншого
-          <svg className="absolute top-0 left-0 overflow-visible pointer-events-none z-40" style={{ width: '1px', height: '1px' }}>
-              <defs>
-                  {/* Зменшені стрілки для тонких ліній */}
-                  <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-                    <polygon points="0 0, 8 3, 0 6" fill="#00f0ff" />
-                  </marker>
-                  <marker id="arrowhead-gold" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-                    <polygon points="0 0, 8 3, 0 6" fill="#fbbf24" />
-                  </marker>
-              </defs>
-              
-              {/* 1. Лінія до наступного стрибка (Синя, тонка, пунктир) */}
-              {next && (
-                  <line 
-                      x1={start.x} y1={start.y} 
-                      x2={next.x} y2={next.y} 
-                      stroke="#00f0ff" 
-                      strokeWidth="1.5" 
-                      strokeDasharray="4,4"
-                      markerEnd="url(#arrowhead)"
-                      className="animate-pulse opacity-80"
-                  />
-              )}
-
-              {/* 2. Лінія до фіналу (Золота, тонка, пунктир) */}
-              {next && end && (
-                  <line 
-                      x1={next.x} y1={next.y} 
-                      x2={end.x} y2={end.y} 
-                      stroke="#fbbf24" 
-                      strokeWidth="1.5" 
-                      strokeDasharray="4,4"
-                      markerEnd="url(#arrowhead-gold)"
-                      opacity="0.8"
-                  />
-              )}
-          </svg>
-      )
-  }
-
-  const totalDist = finalDestination ? getGridDistance(currentSector, finalDestination) : (targetSector ? getGridDistance(currentSector, targetSector) : 0)
-  const jumpsNeeded = Math.ceil(totalDist / jumpRange)
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col font-mono text-white h-[100dvh] overflow-hidden select-none touch-none">
@@ -229,32 +150,24 @@ export default function SectorMap() {
         </button>
       </div>
 
-      {/* TARGET INFO */}
+      {/* TARGET PANEL */}
       {targetSector && (
           <div className="absolute top-20 right-4 z-20 pointer-events-none animate-in slide-in-from-right">
              <div className="glass-panel p-4 text-right border-r-4 border-r-neon-orange pointer-events-auto min-w-[140px] bg-black/80 backdrop-blur-md">
-                <div className="text-[10px] text-gray-400 uppercase tracking-wider">
-                    {finalDestination ? 'Final Destination' : 'Next Jump'}
-                </div>
-                <div className={`font-bold text-xl ${finalDestination ? 'text-yellow-400' : 'text-white'}`}>
-                    {finalDestination || targetSector}
-                </div>
+                <div className="text-[10px] text-gray-400 uppercase tracking-wider">Target</div>
+                <div className="text-white font-bold text-xl">{targetSector}</div>
                 
-                {finalDestination && (
-                    <div className="text-neon-cyan text-[10px] mt-1 flex items-center justify-end gap-1">
-                        <Zap size={10}/> VIA: {targetSector}
-                    </div>
-                )}
-                
-                <div className="mt-2 flex justify-end items-center gap-4 text-[10px] text-gray-500">
-                    <span>DIST: {totalDist} LY</span>
-                    <span>JUMPS: {jumpsNeeded}</span>
+                <div className="mt-2 text-[10px] text-gray-500">JUMP DISTANCE</div>
+                {/* 🔥 ВИКОРИСТАННЯ isTargetReachable: Колір тексту */}
+                <div className={`font-bold text-lg flex items-center justify-end gap-2 ${isTargetReachable ? 'text-neon-cyan' : 'text-red-500'}`}>
+                    {getGridDistance(currentSector, targetSector)} / {jumpRange}
+                    {!isTargetReachable && <Ban size={14}/>}
                 </div>
             </div>
           </div>
       )}
 
-      {/* === MAP INTERACTIVE AREA === */}
+      {/* MAP AREA */}
       <div 
         className="flex-1 relative z-10 overflow-hidden cursor-move flex items-center justify-center touch-none"
         onPointerDown={handlePointerDown}
@@ -262,95 +175,90 @@ export default function SectorMap() {
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
       >
-        {/* Контейнер сітки, що рухається */}
         <div 
             ref={mapRef}
-            className="grid place-items-center will-change-transform relative" 
+            className="grid place-items-center will-change-transform" 
             style={{ 
                 transform: `translate3d(${offset.current.x}px, ${offset.current.y}px, 0)`,
-                width: '0px', height: '0px', 
-                overflow: 'visible' 
+                width: 'max-content', 
+                gap: `${GAP_SIZE}px`,
+                gridTemplateColumns: `repeat(${gridSize * 2 + 1}, ${CELL_SIZE}px)`
             }}
         >
-            {/* 1. Спочатку малюємо сітку секторів (нижній шар, z-index до 30) */}
             {grid.map(sectorId => {
-                const [sx, sy] = sectorId.split(':').map(Number)
                 const isCurrent = sectorId === currentSector
                 const isTarget = sectorId === targetSector
-                const isFinal = sectorId === finalDestination
                 const isVisited = visitedSectors.includes(sectorId) || sectorId === '0:0' || isCurrent
                 const content = getSectorContent(sectorId)
                 const dist = getGridDistance(currentSector, sectorId)
                 const isReachable = dist <= jumpRange
+                // Перевірка на станцію для золотого стилю
                 const isStation = sectorId === '0:0'
-
-                const posX = (sx - cx) * TOTAL_CELL_SIZE
-                const posY = (sy - cy) * TOTAL_CELL_SIZE
 
                 // Стилі клітинки
                 let cellStyle = ''
+                
                 if (isCurrent) {
-                    cellStyle = 'bg-neon-cyan border-neon-cyan text-black shadow-neon z-30 scale-110'
+                    cellStyle = 'bg-neon-cyan border-neon-cyan text-black shadow-neon z-20 scale-110'
                 } else if (isTarget) {
-                    cellStyle = 'bg-neon-orange/20 border-neon-orange text-neon-orange border-dashed z-20 animate-pulse'
-                } else if (isFinal) {
-                    cellStyle = 'bg-yellow-500/20 border-yellow-500 text-yellow-500 border-dashed z-20'
+                    if (isReachable) {
+                        cellStyle = 'bg-neon-orange/20 border-neon-orange text-neon-orange border-dashed z-10'
+                    } else {
+                        cellStyle = 'bg-red-900/40 border-red-500 text-red-500 border-dashed z-10'
+                    }
                 } else if (isStation) {
-                    cellStyle = 'bg-yellow-400/10 border-yellow-400 text-yellow-400 shadow-[inset_0_0_15px_rgba(250,204,21,0.2)]'
+                    // 🔥 ЗОЛОТА СТАНЦІЯ: Ефект світіння
+                    cellStyle = 'bg-yellow-400/10 border-yellow-400 text-yellow-400 shadow-[inset_0_0_15px_rgba(250,204,21,0.2)] z-10'
                 } else if (isReachable) {
                     if (isVisited) {
-                        cellStyle = content.hasEnemies 
-                            ? 'bg-red-900/30 border-red-500 text-white' 
-                            : 'bg-space-800/80 border-white/20 hover:border-neon-cyan/50'
+                        if (content.hasEnemies) {
+                            cellStyle = 'bg-red-900/30 border-red-500 hover:bg-red-900/50 hover:border-red-400 text-white'
+                        } else {
+                            cellStyle = 'bg-space-800/80 border-white/20 hover:border-neon-cyan/50 hover:bg-space-700'
+                        }
                     } else {
-                        // Туман війни (досяжний)
-                        cellStyle = 'bg-black/40 border-white/20 hover:border-white/40 opacity-70'
+                        // Нерозвіданий, але в радіусі - трохи прозоріший
+                        cellStyle = 'bg-black/40 border-white/10 hover:border-white/30'
                     }
                 } else {
-                    // Туман війни (недосяжний)
-                    cellStyle = 'bg-black/20 border-white/10 opacity-50 grayscale'
+                    // Далекі сектори
+                    cellStyle = 'bg-black/20 border-white/5 opacity-40 grayscale'
                 }
 
                 return (
                     <button 
                         key={sectorId}
-                        onClick={() => !isDragging && handleSectorClick(sectorId)}
+                        onClick={() => !isDragging && setTargetSector(sectorId)}
                         disabled={isCurrent}
-                        style={{ 
-                            width: `${CELL_SIZE}px`, 
-                            height: `${CELL_SIZE}px`,
-                            position: 'absolute',
-                            transform: `translate(${posX}px, ${posY}px)`
-                        }}
+                        style={{ width: `${CELL_SIZE}px`, height: `${CELL_SIZE}px` }}
                         className={`
-                            rounded border flex flex-col items-center justify-center group overflow-hidden
-                            transition-all duration-200
+                            rounded border flex flex-col items-center justify-center relative group overflow-hidden
+                            transition-colors duration-200
                             ${cellStyle}
                         `}
                     >
+                        {/* Золота іконка станції */}
                         {isStation && !isCurrent && <div className="absolute inset-0 flex items-center justify-center opacity-30 animate-pulse"><Home size={32}/></div>}
-                        
+
                         {isVisited && !isCurrent && content.icon && (
                             <div className={`opacity-80 ${content.color} scale-75 md:scale-100 relative`}>
                                 {content.icon}
                                 {content.hasEnemies && content.type === 'resources' && (
-                                    <div className="absolute -top-1 -right-2 text-red-500 animate-pulse"><AlertTriangle size={10} fill="currentColor" /></div>
+                                    <div className="absolute -top-1 -right-2 text-red-500 animate-pulse">
+                                        <AlertTriangle size={10} fill="currentColor" />
+                                    </div>
                                 )}
                             </div>
                         )}
                         
                         <span className={`text-[8px] md:text-[10px] font-mono mt-0.5 ${isCurrent ? 'font-black' : 'text-gray-500'}`}>
-                            {isVisited || isTarget || isFinal || isStation ? sectorId : ''}
+                            {isVisited || isStation ? sectorId : ''}
                         </span>
                         
                         {isCurrent && <span className="text-[6px] md:text-[9px] font-black leading-none uppercase mt-1">YOU</span>}
-                        {isFinal && !isTarget && <Route size={12} className="mt-1 text-yellow-500" />}
                     </button>
                 )
             })}
-
-            {/* 🔥 2. Потім малюємо лінії маршруту ПОВЕРХ сітки (z-index 40) */}
-            {renderRouteLines()}
         </div>
       </div>
 
@@ -364,19 +272,18 @@ export default function SectorMap() {
         </button>
 
         <button 
-            disabled={!targetSector}
-            onClick={() => startWarp()}
+            // 🔥 ВИКОРИСТАННЯ isTargetReachable: Блокування кнопки
+            disabled={!targetSector || !isTargetReachable}
+            onClick={startWarp}
             className={`
                 pointer-events-auto px-10 py-3 rounded font-bold text-xs transition-all uppercase tracking-wider flex items-center gap-2
-                ${targetSector 
-                    ? finalDestination ? 'bg-yellow-500 text-black hover:bg-white shadow-[0_0_20px_rgba(250,204,21,0.4)]' : 'bg-neon-cyan text-black hover:bg-white shadow-neon' 
+                ${targetSector && isTargetReachable 
+                    ? 'bg-neon-cyan text-black hover:bg-white hover:scale-105 shadow-neon' 
                     : 'bg-gray-800 text-gray-500 cursor-not-allowed opacity-50'}
             `}
         >
             {targetSector ? (
-                finalDestination 
-                ? <><Zap size={14} className="animate-pulse" /> ENGAGE AUTOPILOT</>
-                : <><Navigation size={14} className="animate-spin-slow" /> JUMP</>
+                isTargetReachable ? <><Navigation size={14} className="animate-spin-slow" /> Initiate Warp</> : <><Ban size={14}/> Out of Range</>
             ) : (
                 'Select Destination'
             )}
