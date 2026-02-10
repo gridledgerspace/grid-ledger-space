@@ -171,7 +171,7 @@ function ActiveObjectVisual({ object, color }: { object: any, color: string }) {
 export default function SpaceView() {
   const { 
       currentSector, localObjects, scanSystem, mineObject, startCombat, 
-      inCombat, combatLog, openContainer, setStationOpen 
+      inCombat, combatLog, openContainer, setStationOpen, status // 🔥 ДОДАНО status
   } = useGameStore((state: any) => state)
   
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -310,7 +310,8 @@ export default function SpaceView() {
       {/* ПАНЕЛЬ ВЗАЄМОДІЇ */}
       <div className="absolute inset-x-0 bottom-[4.5rem] md:bottom-0 z-10 pointer-events-none flex flex-col justify-end items-center pb-2 md:pb-8 p-3">
           <div className="pointer-events-auto w-full max-w-sm md:max-w-md">
-             {activeObj && !inCombat ? (
+             {/* 🔥 ВИПРАВЛЕНО: Додано перевірку status !== 'mining' */}
+             {activeObj && !inCombat && status !== 'mining' ? (
                  <div className={`glass-panel p-4 md:p-6 border-t-2 border-t-neon-cyan/50 rounded-xl text-center w-full transition-all duration-500 
                     backdrop-blur-xl bg-black/80 shadow-lg
                     ${isSwitching ? 'translate-y-10 opacity-0' : 'translate-y-0 opacity-100'}
@@ -380,7 +381,7 @@ export default function SpaceView() {
          </div>
      </div>
 
-     {/* 🔥 МОБІЛЬНЕ НИЖНЄ МЕНЮ (Приховується в бою) */}
+     {/* МОБІЛЬНЕ НИЖНЄ МЕНЮ */}
      {!inCombat && (
          <div className="md:hidden fixed bottom-0 inset-x-0 h-16 bg-space-950/90 border-t border-white/10 flex items-center justify-around z-30 px-2 backdrop-blur-lg">
              <button onClick={() => setMobileListOpen(!isMobileListOpen)} className={`flex flex-col items-center gap-1 p-2 w-16 ${isMobileListOpen ? 'text-neon-cyan' : 'text-gray-400'}`}>

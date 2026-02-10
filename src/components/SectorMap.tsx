@@ -1,297 +1,263 @@
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useGameStore, getGridDistance } from '../store'
-import { Navigation, MapPin, Loader2, LocateFixed, Rocket, Home, Skull, Gem, CircleDashed, Ban, AlertTriangle } from 'lucide-react'
+import { X, Navigation, Crosshair, MapPin, Zap, Home } from 'lucide-react'
 
 export default function SectorMap() {
   const { 
-    currentSector, visitedSectors, targetSector, setTargetSector, 
-    startWarp, fetchSectorGrid, sectorDetails, localObjects,
-    jumpRange 
+      status, currentSector, sectorDetails, 
+      fetchSectorGrid, startWarp, targetSector, setTargetSector, jumpRange 
   } = useGameStore((state: any) => state)
 
-  const [viewCenter, setViewCenter] = useState(currentSector || '0:0')
-  const [isLoading, setIsLoading] = useState(false)
-
-  // === ДРАГ-Н-ДРОП ===
-  const [isDragging, setIsDragging] = useState(false)
-  const offset = useRef({ x: 0, y: 0 }) 
-  const dragStart = useRef({ x: 0, y: 0 })
-  const mapRef = useRef<HTMLDivElement>(null)
-  
-  const isMobile = window.innerWidth < 768
-  const CELL_SIZE = isMobile ? window.innerWidth * 0.18 : 80 
-  const GAP_SIZE = isMobile ? 4 : 8
-  const TOTAL_CELL_SIZE = CELL_SIZE + GAP_SIZE
+  // Кінцева ціль маршруту (якщо більше 1 стрибка)
+  const [finalDestination, setFinalDestination] = useState<string | null>(null)
 
   useEffect(() => {
-      const loadData = async () => {
-          setIsLoading(true)
-          await fetchSectorGrid(viewCenter)
-          setIsLoading(false)
+      if (status === 'map') {
+          fetchSectorGrid(currentSector)
       }
-      loadData()
-  }, [viewCenter])
+  }, [status, currentSector])
 
-  const applyTransform = (x: number, y: number) => {
-      if (mapRef.current) {
-          mapRef.current.style.transform = `translate3d(${x}px, ${y}px, 0)`
-      }
-  }
+  if (status !== 'map') return null
 
-  const handlePointerDown = (e: React.PointerEvent) => {
-    setIsDragging(true)
-    dragStart.current = { x: e.clientX, y: e.clientY }
-    if (mapRef.current) mapRef.current.style.transition = 'none'
-  }
+  const [cx, cy] = currentSector.split(':').map(Number)
+  const gridSize = 3 // Радіус відображення (7x7 сітка)
 
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDragging) return
-    e.preventDefault() 
-    const dx = e.clientX - dragStart.current.x
-    const dy = e.clientY - dragStart.current.y
-    applyTransform(offset.current.x + dx, offset.current.y + dy)
-  }
-
-  const handlePointerUp = (e: React.PointerEvent) => {
-    if (!isDragging) return
-    setIsDragging(false)
-
-    const dx = e.clientX - dragStart.current.x
-    const dy = e.clientY - dragStart.current.y
-    const currentTotalX = offset.current.x + dx
-    const currentTotalY = offset.current.y + dy
-
-    const sectorsX = -Math.round(currentTotalX / TOTAL_CELL_SIZE)
-    const sectorsY = -Math.round(currentTotalY / TOTAL_CELL_SIZE)
-
-    if (sectorsX !== 0 || sectorsY !== 0) {
-        const [cx, cy] = viewCenter.split(':').map(Number)
-        setViewCenter(`${cx + sectorsX}:${cy + sectorsY}`)
-        offset.current.x = currentTotalX + (sectorsX * TOTAL_CELL_SIZE)
-        offset.current.y = currentTotalY + (sectorsY * TOTAL_CELL_SIZE)
-    } else {
-        offset.current.x = currentTotalX
-        offset.current.y = currentTotalY
-    }
-    applyTransform(offset.current.x, offset.current.y)
-  }
-
-  const centerOnPlayer = () => {
-      setViewCenter(currentSector)
-      offset.current = { x: 0, y: 0 }
-      applyTransform(0, 0)
-  }
-
-  // 🔥 ОНОВЛЕНА ЛОГІКА ВІДОБРАЖЕННЯ
-  const getSectorContent = (id: string) => {
-      if (id === '0:0') return { type: 'station', icon: <Home size={14}/>, color: 'text-white', hasEnemies: false }
-      
-      let hasEnemies = false
-      let hasResources = false
-      let isDepleted = false
-      let hasPlayer = false
-
-      // 1. Перевіряємо локальні об'єкти (якщо це поточний сектор)
-      if (id === currentSector && localObjects.length > 0) {
-           hasEnemies = localObjects.some((o: any) => o.type === 'enemy')
-           hasPlayer = localObjects.some((o: any) => o.type === 'player')
-           hasResources = localObjects.some((o: any) => o.type === 'asteroid' && o.data)
-      } 
-      // 2. Інакше беремо з кешу (Sector Details)
-      else {
-          const details = sectorDetails[id]
-          if (details) {
-              hasEnemies = details.hasEnemies
-              hasResources = details.hasResources
-              isDepleted = details.isDepleted
+  // Генеруємо сітку координат
+  const gridCells = useMemo(() => {
+      const cells = []
+      for (let y = cy - gridSize; y <= cy + gridSize; y++) {
+          for (let x = cx - gridSize; x <= cx + gridSize; x++) {
+              cells.push(`${x}:${y}`)
           }
       }
+      return cells
+  }, [cx, cy])
 
-      // 3. Формуємо результат
-      if (hasPlayer) return { type: 'player', icon: <Rocket size={14}/>, color: 'text-green-400', hasEnemies }
-      
-      // Пріоритет відображення:
-      // Якщо є ресурси -> показуємо Gem (але якщо є ворог, додамо червону рамку в рендері)
-      if (hasResources) return { type: 'resources', icon: <Gem size={14}/>, color: 'text-neon-cyan', hasEnemies }
-      
-      // Якщо ресурсів немає, але є ворог -> показуємо Череп
-      if (hasEnemies) return { type: 'enemy', icon: <Skull size={14}/>, color: 'text-neon-red', hasEnemies }
-      
-      if (isDepleted) return { type: 'empty', icon: <CircleDashed size={14}/>, color: 'text-gray-700', hasEnemies: false }
-      
-      return { type: 'unknown', icon: null, color: 'text-gray-800', hasEnemies: false }
+  // Логіка вибору сектора (Маршрутизація)
+  const handleSectorClick = (id: string) => {
+      if (id === currentSector) return
+
+      const dist = getGridDistance(currentSector, id)
+
+      if (dist <= jumpRange) {
+          // Якщо в межах стрибка - просто вибираємо
+          setTargetSector(id)
+          setFinalDestination(null)
+      } else {
+          // Якщо далеко - будуємо маршрут і вибираємо наступний крок
+          setFinalDestination(id)
+          
+          // Знаходимо проміжну точку: рухаємось на jumpRange в сторону цілі
+          const [tx, ty] = id.split(':').map(Number)
+          
+          const dx = tx - cx
+          const dy = ty - cy
+          
+          // Нормалізуємо крок
+          const ratio = jumpRange / Math.max(Math.abs(dx), Math.abs(dy))
+          const nextX = Math.round(cx + dx * ratio)
+          const nextY = Math.round(cy + dy * ratio)
+          
+          const nextHop = `${nextX}:${nextY}` === currentSector 
+             ? `${cx + Math.sign(dx)}:${cy + Math.sign(dy)}` 
+             : `${nextX}:${nextY}`
+
+          setTargetSector(nextHop)
+      }
   }
 
-  const isTargetReachable = targetSector && getGridDistance(currentSector, targetSector) <= jumpRange
+  // Розрахунок лінії маршруту для візуалізації
+  const getLineCoordinates = () => {
+      if (!finalDestination && !targetSector) return null
+      
+      const end = finalDestination || targetSector
+      if (!end) return null
 
-  const [cx, cy] = viewCenter.split(':').map(Number)
-  const gridSize = 4 
-  const grid = []
-  for (let y = cy - gridSize; y <= cy + gridSize; y++) {
-    for (let x = cx - gridSize; x <= cx + gridSize; x++) {
-      grid.push(`${x}:${y}`)
-    }
+      const [ex, ey] = end.split(':').map(Number)
+      
+      // Сітка 7x7. Центр (3,3). 1 клітинка ≈ 14.28%
+      const cellPercent = 100 / 7
+      
+      const startX = 50 
+      const startY = 50
+      
+      const endX = 50 + (ex - cx) * cellPercent
+      const endY = 50 + (ey - cy) * cellPercent
+
+      return { x1: startX, y1: startY, x2: endX, y2: endY }
   }
+
+  const routeLine = getLineCoordinates()
+  const totalDistance = finalDestination ? getGridDistance(currentSector, finalDestination) : (targetSector ? getGridDistance(currentSector, targetSector) : 0)
+  const jumpsRequired = Math.ceil(totalDistance / jumpRange)
 
   return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col font-mono text-white h-[100dvh] overflow-hidden select-none touch-none">
+    <div className="absolute inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-4 animate-in fade-in duration-300">
       
-      <div className="absolute inset-0 z-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-space-900 via-black to-black opacity-80" />
-      <div className="absolute inset-0 z-0 opacity-20" 
-           style={{ backgroundImage: 'linear-gradient(#333 1px, transparent 1px), linear-gradient(90deg, #333 1px, transparent 1px)', backgroundSize: '40px 40px' }}>
-      </div>
-
-      {/* HEADER */}
-      <div className="absolute top-0 left-0 w-full p-4 z-20 flex justify-between items-start pointer-events-none">
-        <div className="glass-panel px-4 py-2 border-l-4 border-l-neon-cyan pointer-events-auto bg-black/60 backdrop-blur-md">
-             <h2 className="text-xl md:text-2xl text-neon-cyan font-bold flex items-center gap-2 uppercase shadow-neon">
-                 <MapPin className="w-5 h-5" /> Tactical Map
-             </h2>
-             <div className="flex items-center gap-2 mt-1">
-                 <p className="text-gray-500 text-xs">VIEW: <span className="text-white">{viewCenter}</span></p>
-                 {isLoading && <Loader2 size={12} className="animate-spin text-neon-cyan"/>}
-             </div>
-        </div>
-        <button onClick={centerOnPlayer} className="glass-panel p-3 rounded-full border border-neon-cyan/30 text-neon-cyan hover:bg-neon-cyan hover:text-black transition-all pointer-events-auto shadow-lg active:scale-95 bg-black/60">
-            <LocateFixed size={24} />
-        </button>
-      </div>
-
-      {/* TARGET PANEL */}
-      {targetSector && (
-          <div className="absolute top-20 right-4 z-20 pointer-events-none animate-in slide-in-from-right">
-             <div className="glass-panel p-4 text-right border-r-4 border-r-neon-orange pointer-events-auto min-w-[140px] bg-black/80 backdrop-blur-md">
-                <div className="text-[10px] text-gray-400 uppercase tracking-wider">Target</div>
-                <div className="text-white font-bold text-xl">{targetSector}</div>
-                
-                <div className="mt-2 text-[10px] text-gray-500">JUMP DISTANCE</div>
-                <div className={`font-bold text-lg flex items-center justify-end gap-2 ${isTargetReachable ? 'text-neon-cyan' : 'text-red-500'}`}>
-                    {getGridDistance(currentSector, targetSector)} / {jumpRange}
-                    {!isTargetReachable && <Ban size={14}/>}
-                </div>
-            </div>
+      {/* --- HEADER --- */}
+      <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black to-transparent flex justify-between items-start pointer-events-none">
+          <div className="pointer-events-auto">
+              <h2 className="text-2xl md:text-4xl font-black font-mono text-neon-cyan flex items-center gap-2">
+                  <Navigation className="animate-pulse" /> TACTICAL MAP
+              </h2>
+              <div className="text-xs text-gray-400 font-mono mt-1">
+                  SECTOR: <span className="text-white">{currentSector}</span> // RANGE: <span className="text-neon-orange">{jumpRange} LY</span>
+              </div>
           </div>
-      )}
-
-      {/* MAP AREA */}
-      <div 
-        className="flex-1 relative z-10 overflow-hidden cursor-move flex items-center justify-center touch-none"
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
-      >
-        <div 
-            ref={mapRef}
-            className="grid place-items-center will-change-transform" 
-            style={{ 
-                transform: `translate3d(${offset.current.x}px, ${offset.current.y}px, 0)`,
-                width: 'max-content', 
-                gap: `${GAP_SIZE}px`,
-                gridTemplateColumns: `repeat(${gridSize * 2 + 1}, ${CELL_SIZE}px)`
-            }}
-        >
-            {grid.map(sectorId => {
-                const isCurrent = sectorId === currentSector
-                const isTarget = sectorId === targetSector
-                const isVisited = visitedSectors.includes(sectorId) || sectorId === '0:0' || isCurrent
-                const content = getSectorContent(sectorId)
-                const dist = getGridDistance(currentSector, sectorId)
-                const isReachable = dist <= jumpRange
-
-                // 🔥 РОЗРАХУНОК СТИЛІВ КЛІТИНКИ
-                let cellStyle = ''
-                
-                if (isCurrent) {
-                    cellStyle = 'bg-neon-cyan border-neon-cyan text-black shadow-neon z-20 scale-110'
-                } else if (isTarget) {
-                    // Якщо це ціль - рамка пунктирна
-                    if (isReachable) {
-                        cellStyle = 'bg-neon-orange/20 border-neon-orange text-neon-orange border-dashed z-10'
-                    } else {
-                        cellStyle = 'bg-red-900/40 border-red-500 text-red-500 border-dashed z-10'
-                    }
-                } else if (isReachable) {
-                    // Якщо досяжний, але не обраний
-                    if (isVisited) {
-                        // Якщо є ворог - ЧЕРВОНА рамка і фон
-                        if (content.hasEnemies) {
-                            cellStyle = 'bg-red-900/30 border-red-500 hover:bg-red-900/50 hover:border-red-400 text-white'
-                        } else {
-                            cellStyle = 'bg-space-800/80 border-white/20 hover:border-neon-cyan/50 hover:bg-space-700'
-                        }
-                    } else {
-                        cellStyle = 'bg-black/40 border-white/10 hover:border-white/30'
-                    }
-                } else {
-                    // Недосяжний
-                    cellStyle = 'bg-black/20 border-white/5 opacity-40 grayscale'
-                }
-
-                return (
-                    <button 
-                        key={sectorId}
-                        onClick={() => !isDragging && setTargetSector(sectorId)}
-                        disabled={isCurrent}
-                        style={{ width: `${CELL_SIZE}px`, height: `${CELL_SIZE}px` }}
-                        className={`
-                            rounded border flex flex-col items-center justify-center relative group overflow-hidden
-                            transition-colors duration-200
-                            ${cellStyle}
-                        `}
-                    >
-                        {isVisited && !isCurrent && content.icon && (
-                            <div className={`opacity-80 ${content.color} scale-75 md:scale-100 relative`}>
-                                {content.icon}
-                                {/* Якщо є ресурси І ворог - додаємо малий індикатор небезпеки біля іконки */}
-                                {content.hasEnemies && content.type === 'resources' && (
-                                    <div className="absolute -top-1 -right-2 text-red-500 animate-pulse">
-                                        <AlertTriangle size={10} fill="currentColor" />
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                        
-                        <span className={`text-[8px] md:text-[10px] font-mono mt-0.5 ${isCurrent ? 'font-black' : 'text-gray-500'}`}>
-                            {isVisited ? sectorId : ''}
-                        </span>
-                        
-                        {isCurrent && <span className="text-[6px] md:text-[9px] font-black leading-none uppercase mt-1">YOU</span>}
-                        
-                        {/* 🔥 ВИДАЛЕНО Crosshair, який вас дратував */}
-                    </button>
-                )
-            })}
-        </div>
+          <button 
+            onClick={() => useGameStore.setState({ status: 'space' })} 
+            className="pointer-events-auto p-2 bg-white/5 border border-white/10 rounded hover:bg-white/20 text-gray-400 hover:text-white transition-all"
+          >
+            <X size={24}/>
+          </button>
       </div>
 
-      {/* FOOTER */}
-      <div className="absolute bottom-6 w-full px-6 flex justify-center gap-4 z-20 pointer-events-none">
-        <button 
-            onClick={() => useGameStore.setState({ status: 'space' })}
-            className="pointer-events-auto bg-black/80 backdrop-blur border border-gray-600 text-gray-400 px-6 py-3 rounded font-bold text-xs hover:text-white hover:border-white transition-all uppercase tracking-wider"
-        >
-            Close
-        </button>
+      {/* --- GRID CONTAINER --- */}
+      <div className="relative w-full max-w-md aspect-square bg-space-900/50 border border-white/10 rounded-xl overflow-hidden shadow-[0_0_50px_rgba(0,240,255,0.05)]">
+          
+          {/* SVG LAYERS (Лінії та з'єднання) */}
+          <svg className="absolute inset-0 w-full h-full pointer-events-none z-0 opacity-30">
+             <defs>
+                 <pattern id="smallGrid" width="14.28%" height="14.28%" patternUnits="userSpaceOnUse">
+                     <path d="M 100 0 L 0 0 0 100" fill="none" stroke="white" strokeWidth="0.5"/>
+                 </pattern>
+             </defs>
+             <rect width="100%" height="100%" fill="url(#smallGrid)" />
+             
+             {/* ROUTE LINE */}
+             {routeLine && (
+                 <line 
+                    x1={`${routeLine.x1}%`} y1={`${routeLine.y1}%`} 
+                    x2={`${routeLine.x2}%`} y2={`${routeLine.y2}%`} 
+                    stroke={finalDestination ? "#fbbf24" : "#00f0ff"} 
+                    strokeWidth="2" 
+                    strokeDasharray={finalDestination ? "5,5" : "0"}
+                    className={finalDestination ? "animate-dash" : ""}
+                 />
+             )}
+          </svg>
 
-        <button 
-            disabled={!targetSector || !isTargetReachable}
-            onClick={startWarp}
-            className={`
-                pointer-events-auto px-10 py-3 rounded font-bold text-xs transition-all uppercase tracking-wider flex items-center gap-2
-                ${targetSector && isTargetReachable 
-                    ? 'bg-neon-cyan text-black hover:bg-white hover:scale-105 shadow-neon' 
-                    : 'bg-gray-800 text-gray-500 cursor-not-allowed opacity-50'}
-            `}
-        >
-            {targetSector ? (
-                isTargetReachable ? <><Navigation size={14} className="animate-spin-slow" /> Initiate Warp</> : <><Ban size={14}/> Out of Range</>
-            ) : (
-                'Select Destination'
-            )}
-        </button>
+          {/* CELLS */}
+          <div className="absolute inset-0 grid grid-cols-7 grid-rows-7 z-10 p-2 gap-1 md:gap-2">
+              {gridCells.map(cellId => {
+                  const isCurrent = cellId === currentSector
+                  const isTarget = cellId === targetSector
+                  const isFinal = cellId === finalDestination
+                  const dist = getGridDistance(currentSector, cellId)
+                  const inRange = dist <= jumpRange
+                  
+                  const detail = sectorDetails[cellId]
+                  const isStation = cellId === '0:0' 
+
+                  // Стилізація клітинки
+                  let bgClass = "bg-white/5"
+                  let borderClass = "border-white/5"
+                  let textClass = "text-gray-600"
+                  let opacityClass = "opacity-50" 
+
+                  if (isCurrent) {
+                      bgClass = "bg-neon-cyan/20"
+                      borderClass = "border-neon-cyan"
+                      textClass = "text-white"
+                      opacityClass = "opacity-100"
+                  } else if (isTarget) {
+                      bgClass = "bg-neon-orange/20"
+                      borderClass = "border-neon-orange animate-pulse"
+                      textClass = "text-neon-orange"
+                      opacityClass = "opacity-100"
+                  } else if (isFinal) {
+                      bgClass = "bg-yellow-500/10"
+                      borderClass = "border-yellow-500 border-dashed"
+                      textClass = "text-yellow-500"
+                      opacityClass = "opacity-100"
+                  } else if (isStation) {
+                      bgClass = "bg-yellow-400/10 shadow-[inset_0_0_20px_rgba(250,204,21,0.2)]"
+                      borderClass = "border-yellow-400"
+                      textClass = "text-yellow-400 font-bold"
+                      opacityClass = "opacity-100"
+                  } else if (inRange) {
+                      borderClass = "border-white/20 hover:border-white/50"
+                      textClass = "text-gray-400"
+                      opacityClass = "opacity-80"
+                  }
+
+                  return (
+                      <button
+                          key={cellId}
+                          onClick={() => handleSectorClick(cellId)}
+                          disabled={isCurrent}
+                          className={`
+                              relative flex flex-col items-center justify-center rounded transition-all duration-200
+                              ${bgClass} ${borderClass} ${opacityClass} border
+                              ${inRange && !isCurrent ? 'hover:scale-105 cursor-pointer' : ''}
+                              ${!inRange && !isCurrent ? 'cursor-crosshair hover:bg-white/10' : ''}
+                          `}
+                      >
+                          {/* Іконки */}
+                          {isCurrent && <Navigation size={16} className="text-neon-cyan mb-1" />}
+                          {isTarget && !isCurrent && <Crosshair size={16} className="text-neon-orange mb-1 animate-spin-slow" />}
+                          {isFinal && <MapPin size={16} className="text-yellow-500 mb-1" />}
+                          
+                          {/* Іконка станції */}
+                          {isStation && !isCurrent && !isTarget && (
+                              <Home size={16} className="text-yellow-400 mb-1 animate-pulse" />
+                          )}
+                          
+                          {/* Іконка ворогів */}
+                          {detail?.hasEnemies && !isCurrent && (
+                              <div className="absolute top-1 right-1 w-1.5 h-1.5 bg-neon-red rounded-full animate-ping" />
+                          )}
+                          {/* Іконка ресурсів */}
+                          {detail?.hasResources && !isCurrent && (
+                              <div className="absolute bottom-1 right-1 w-1 h-1 bg-neon-cyan rounded-full" />
+                          )}
+
+                          <span className={`text-[8px] md:text-[10px] font-mono ${textClass}`}>
+                              {cellId}
+                          </span>
+                      </button>
+                  )
+              })}
+          </div>
       </div>
 
+      {/* --- FOOTER CONTROLS --- */}
+      <div className="w-full max-w-md mt-4 flex gap-4">
+          <div className="flex-1 bg-black/50 border border-white/10 p-3 rounded flex flex-col justify-center">
+              <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">Status</div>
+              {finalDestination ? (
+                  <div className="text-yellow-500 font-mono text-sm animate-pulse flex items-center gap-2">
+                      <Zap size={14}/> ROUTE PLOTTED
+                  </div>
+              ) : targetSector ? (
+                  <div className="text-neon-orange font-mono text-sm flex items-center gap-2">
+                      <Crosshair size={14}/> LOCKED
+                  </div>
+              ) : (
+                  <div className="text-gray-400 font-mono text-sm">IDLE</div>
+              )}
+          </div>
+
+          <button
+              onClick={() => startWarp()}
+              disabled={!targetSector}
+              className={`
+                  flex-1 py-3 px-6 rounded font-bold font-mono text-lg uppercase transition-all flex flex-col items-center justify-center
+                  ${targetSector 
+                      ? 'bg-neon-orange text-black hover:bg-white shadow-[0_0_20px_rgba(255,165,0,0.4)]' 
+                      : 'bg-white/5 text-gray-600 cursor-not-allowed border border-white/5'}
+              `}
+          >
+              {finalDestination ? (
+                  <>
+                      <span>INITIATE JUMP</span>
+                      <span className="text-[9px] opacity-70 mt-1">SEQ: 1 / {jumpsRequired}</span>
+                  </>
+              ) : (
+                  <span>WARP DRIVE</span>
+              )}
+          </button>
+      </div>
     </div>
   )
 }
